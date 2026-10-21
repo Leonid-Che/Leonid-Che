@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>TabletTouch — предпросмотр проекта (Windows Cursor Control)</title>
+<style>
+  :root{
+    --bg:#0f1218; --panel:#161b26; --panel2:#1d2434; --line:#2a3348;
+    --accent:#3b82f6; --accent2:#22c55e; --warn:#f59e0b; --text:#dbe3f0; --dim:#8a94a8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:"Segoe UI",Roboto,Arial,sans-serif;padding:18px}
+  h1{font-size:20px;font-weight:600;margin-bottom:4px}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:16px}
+  .layout{display:flex;gap:16px;flex-wrap:wrap}
+  .col{display:flex;flex-direction:column;gap:12px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin-bottom:10px}
+
+  /* ---------- окно сервера Windows 10 ---------- */
+  .win{width:640px}
+  .titlebar{display:flex;align-items:center;gap:8px;background:var(--panel2);
+    border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;padding:7px 10px;font-size:13px}
+  .titlebar .dot{width:11px;height:11px;border-radius:50%}
+  .tb-controls{margin-left:auto;display:flex;gap:14px;color:var(--dim);font-size:13px}
+  .winbody{border:1px solid var(--line);border-radius:0 0 8px 8px;background:#10141d;padding:10px}
+  .statusrow{display:flex;gap:10px;align-items:center;font-size:13px;margin-bottom:10px;flex-wrap:wrap}
+  .pill{padding:2px 10px;border-radius:999px;font-size:12px;border:1px solid var(--line)}
+  .pill.ok{background:#0d2a17;color:#4ade80;border-color:#1d4d2f}
+  .pill.idle{background:#242a38;color:#9aa6bb}
+  .pill.wifi{background:#122a44;color:#60a5fa;border-color:#1e3f63}
+  .pill.usb{background:#2c2410;color:#fbbf24;border-color:#4d3d16}
+  canvas#pcscreen{width:100%;height:300px;display:block;border-radius:6px;border:1px solid var(--line);background:#000}
+  .log{margin-top:10px;height:110px;overflow:hidden;font-family:Consolas,monospace;font-size:11.5px;
+       background:#0a0e15;border:1px solid var(--line);border-radius:6px;padding:6px 8px;line-height:1.5}
+  .log .t{color:#5b6b84}.log .i{color:#7dd3fc}.log .g{color:#4ade80}.log .y{color:#fbbf24}.log .m{color:#c084fc}
+  .btns{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}
+  button{background:var(--accent);border:none;color:#fff;padding:7px 12px;border-radius:6px;font-size:13px;cursor:pointer}
+  button.sec{background:var(--panel2);border:1px solid var(--line);color:var(--text)}
+  button:hover{filter:brightness(1.15)}
+
+  /* ---------- планшет Android ---------- */
+  .tabletwrap{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .tablet{width:480px;height:320px;background:#000;border:10px solid #232833;border-radius:22px;
+    position:relative;overflow:hidden;transition:width .45s ease,height .45s ease;touch-action:none;cursor:crosshair}
+  .tablet.portrait{width:320px;height:480px}
+  .tablet video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+  .osd{position:absolute;top:6px;left:8px;font-size:11px;color:#cbd5e1;
+    text-shadow:0 1px 2px #000;pointer-events:none;z-index:3;font-family:Consolas,monospace}
+  .ripple{position:absolute;width:34px;height:34px;border-radius:50%;
+    border:2px solid rgba(59,130,246,.9);transform:translate(-50%,-50%);
+    pointer-events:none;z-index:4;animation:rip .5s ease-out forwards}
+  @keyframes rip{from{opacity:.9;scale:1}to{opacity:0;scale:2.2}}
+  .hint{font-size:12px;color:var(--dim);max-width:480px;text-align:center}
+
+  /* ---------- инфо ---------- */
+  .kv{font-size:12.5px;line-height:1.9}
+  .kv b{color:#93c5fd;font-weight:600}
+  .flow{font-size:12.5px;line-height:1.7;color:var(--dim)}
+  .flow code{color:#a5f3fc;background:#0a0e15;padding:1px 5px;border-radius:4px;font-size:11.5px}
+</style>
+</head>
+<body>
+
+<h1>TabletTouch / Windows Cursor Control — предпросмотр проекта</h1>
+<div class="sub">Слева — окно сервера на Windows&nbsp;10 (<code>pc_server/main.py</code>). Справа — планшет Android&nbsp;12
+(<code>android_app</code>): принимает видеопоток H.264 с пропорциональной подгонкой (чёрные поля) и управляет курсором ПК касаниями. Всё интерактивно.</div>
+
+<div class="layout">
+
+  <!-- ================= ОКНО WINDOWS ================= -->
+  <div class="col">
+    <div class="card win">
+      <div class="titlebar">
+        <span class="dot" style="background:#22c55e"></span>
+        TabletTouchServer.exe — сервер сенсорного экрана
+        <span class="tb-controls"><span>&#8211;</span><span>&#9633;</span><span>&times;</span></span>
+      </div>
+      <div class="winbody">
+        <div class="statusrow">
+          <span id="st-server" class="pill ok">сервер запущен :8765</span>
+          <span id="st-client" class="pill idle">клиент: нет</span>
+          <span id="st-link"  class="pill idle">канал: —</span>
+          <span id="st-fps"   class="pill idle">FPS: —</span>
+          <span id="st-rot"   class="pill idle">поворот монитора: программный 0°</span>
+        </div>
+
+        <!-- «экран компьютера»: сюда попадает виртуальный курсор от тача планшета -->
+        <canvas id="pcscreen" width="1240" height="620"></canvas>
+
+        <div class="log" id="log"></div>
+
+        <div class="btns">
+          <button onclick="connectTablet()">Подключить планшет (Wi-Fi)</button>
+          <button class="sec" onclick="connectTablet('usb')">ADB forward (USB)</button>
+          <button class="sec" onclick="rotateFlow()">↻ Повернуть поток (портрет)</button>
+          <button class="sec" onclick="disconnectTablet()">Отключить клиент</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="width:640px">
+      <h2>Как устроен проект</h2>
+      <div class="flow">
+        <b style="color:#dbe3f0">pc_server/</b> — <code>mss</code> захват → <code>PyAV libx264/nvenc</code> (H.264 annex-b)
+        → WebSocket <code>:8765</code>; приём тачей → <code>SendInput</code> (<code>input_inject.py</code>);
+        смена ориентации → <code>ChangeDisplaySettingsExW</code>/<code>DDC-CI</code> или программный доворот кадра.<br>
+        <b style="color:#dbe3f0">android_app/</b> — <code>MediaCodec</code>-декодер + <code>SurfaceView</code>
+        (aspect-fit = та же пропорциональная подгонка), <code>MotionEvent</code> → JSON-команды
+        <code>hello / orientation / touch</code>. Wi-Fi и USB (<code>adb forward tcp:8765</code>) — одним стеком.
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= ПЛАНШЕТ ================= -->
+  <div class="col tabletwrap">
+    <div class="card" style="padding:16px">
+      <div class="tablet" id="tablet">
+        <video id="videoc" autoplay muted playsinline></video>
+        <div class="osd" id="osd">планшет выключен</div>
+      </div>
+    </div>
+    <div class="hint">Касайтесь экрана планшета — курсор Windows перемещается в соответствующую точку
+    (абсолютный режим). Долгое нажатие &gt;0.65&nbsp;с = правый клик. Кнопки ниже эмулируют гироскоп:
+    портретная ориентация планшета разворачивает изображение ПК.</div>
+    <div class="btns" style="justify-content:center">
+      <button class="sec" onclick="setOrientation(0)">Планшет: ландшафт 0°</button>
+      <button class="sec" onclick="setOrientation(90)">Планшет: портрет 90°</button>
+    </div>
+
+    <div class="card" style="width:480px">
+      <h2>Телеметрия сессии</h2>
+      <div class="kv" id="telemetry">—</div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   Предпросмотр повторяет логику pc_server/main.py:
+   - _desired_rotation(): deg планшета -> доворот потока {0:0,90:3,180:2,270:1}
+   - frame_payload(): 'V' (программный доворот) vs 'v' (физический поворот монитора)
+   - _map_point(): нормализация касаний + компенсация доворота
+   ============================================================ */
+
+const PC_W = 1920, PC_H = 1080;              // «монитор» Windows
+let connected=false, link='wifi', rotDeg=0;  // ориентация планшета
+let cursor={x:.5,y:.5}, down=false, rightClickFx=0, wheelFx=0;
+let fpsShown=0, pinch=0;
+
+const tablet=document.getElementById('tablet');
+const osd=document.getElementById('osd');
+const logEl=document.getElementById('log');
+const cv=document.getElementById('pcscreen'), cx=cv.getContext('2d');
+
+/* --- генератор «экрана компьютера» (аналог stub-кадров сервера) --- */
+function drawPC(t){
+  const w=cv.width,h=cv.height;
+  const g=cx.createLinearGradient(0,0,w,h);
+  g.addColorStop(0,'#1b2a4a'); g.addColorStop(1,'#0c1526');
+  cx.fillStyle=g; cx.fillRect(0,0,w,h);
+  // окна приложений
+  win(w*0.06,h*0.10,w*0.42,h*0.62,'Проводник — D:\\Projects','#1f2b45');
+  win(w*0.52,h*0.16,w*0.42,h*0.55,'main.py — TabletTouch Server','#1c3326');
+  // панель задач
+  cx.fillStyle='rgba(10,14,22,.85)'; cx.fillRect(0,h-40,w,40);
+  cx.fillStyle='#3b82f6'; cx.fillRect(10,h-32,24,24);
+  cx.fillStyle='#22c55e'; cx.fillRect(44,h-32,24,24);
+  cx.fillStyle='#8a94a8'; cx.font='20px Consolas';
+  cx.fillText(new Date().toLocaleTimeString('ru-RU'), w-140, h-14);
+  if(connected){
+    cx.fillStyle='#4ade80'; cx.beginPath(); cx.arc(w-200,h-20,7,0,7); cx.fill();
+    cx.fillStyle='#cbd5e1'; cx.fillText('планшет активен', w-470, h-14);
+  }
+  if(wheelFx!==0){
+    cx.fillStyle='rgba(59,130,246,.5)';
+    cx.font='34px Segoe UI';
+    cx.fillText(wheelFx>0?'⬆ Ctrl+прокрутка':'⬇ Ctrl+прокрутка', w/2-160, h/2);
+  }
+  // курсор Windows (позиционируется из координат тача)
+  const px=cursor.x*w, py=cursor.y*h;
+  cx.save(); cx.translate(px,py);
+  cx.fillStyle= down ? '#fde047':'#ffffff';
+  cx.strokeStyle='#000'; cx.lineWidth=2;
+  cx.beginPath(); cx.moveTo(0,0); cx.lineTo(0,26); cx.lineTo(7,20); cx.lineTo(12,30);
+  cx.lineTo(16,28); cx.lineTo(11,18); cx.lineTo(20,18); cx.closePath();
+  cx.fill(); cx.stroke();
+  if(rightClickFx>0){ cx.strokeStyle='rgba(248,113,113,'+rightClickFx+')';
+    cx.beginPath(); cx.arc(0,0,30*(1-rightClickFx)+8,0,7); cx.stroke(); }
+  cx.restore();
+}
+function win(x,y,w,h,title,color){
+  cx.fillStyle=color; cx.fillRect(x,y,w,h);
+  cx.strokeStyle='#3a4a6a'; cx.strokeRect(x+.5,y+.5,w,h);
+  cx.fillStyle='#0d1420'; cx.fillRect(x,y,w,34);
+  cx.fillStyle='#c7d3ea'; cx.font='19px Segoe UI'; cx.fillText(title,x+14,y+24);
+  cx.fillStyle='rgba(255,255,255,.06)';
+  for(let i=0;i<6;i++) cx.fillRect(x+16,y+50+i*30,w*(0.9-(i%3)*0.18),14);
+}
+
+/* --- лог в стиле консоли сервера --- */
+function log(cls,msg){
+  const d=document.createElement('div');
+  d.innerHTML='<span class="t">'+new Date().toTimeString().slice(0,8)+
+    '</span> <span class="'+cls+'">'+msg+'</span>';
+  logEl.prepend(d);
+  while(logEl.children.length>8) logEl.lastChild.remove();
+}
+
+function setPill(id,text,cls){const e=document.getElementById(id);e.textContent=text;e.className='pill '+cls;}
+
+function connectTablet(l){
+  if(connected) return;
+  link=l||'wifi'; connected=true;
+  setPill('st-client','клиент: Android 12 (планшет)','ok');
+  setPill('st-link', link==='usb' ? 'канал: USB adb-forward 8765' : 'канал: Wi-Fi 192.168.1.50:8765',
+          link==='usb'?'usb':'wifi');
+  osd.textContent='поток подключён';
+  log('g','INFO  tabletserver: подключён клиент 192.168.1.50 (всего 1)');
+  log('i','INFO  tabletserver: клиент: 1600x2560, поворот планшета '+rotDeg+'°, десктоп '+PC_W+'x'+PC_H);
+  log('m','INFO  encoder: поток 1920x1080, кодек auto→libx264 ultrafast zerolatency, GOP 30');
+  updateTelemetry();
+}
+function disconnectTablet(){
+  if(!connected) return;
+  connected=false;
+  setPill('st-client','клиент: нет','idle');
+  setPill('st-link','канал: —','idle');
+  setPill('st-fps','FPS: —','idle');
+  osd.textContent='планшет выключен';
+  log('y','INFO  tabletserver: клиент 192.168.1.50 отключился');
+  updateTelemetry();
+}
+
+/* --- ориентация: как notify_orientation_change + _desired_rotation --- */
+function desiredRotation(deg){return ({0:0,90:3,180:2,270:1})[deg]??0;}
+function setOrientation(deg){
+  if(!connected) connectTablet();
+  rotDeg=deg;
+  tablet.classList.toggle('portrait',deg===90||deg===270);
+  const r=desiredRotation(deg);
+  setPill('st-rot','поворот: программный '+((r*90)%360)+'° (флаг V)', r? 'usb':'ok');
+  log('i','INFO  tabletserver: ориентация планшета: '+deg+'°');
+  log('y','INFO  tabletserver: физический поворот дисплея: неприменим → кадр довёрнут на '+((r*90)%360)+'°');
+  log('g','CTRL → клиенту: {"type":"restart","degrees":'+((r*90)%360)+'} — MediaCodec пересоздан');
+  updateTelemetry();
+}
+function rotateFlow(){ setOrientation(rotDeg===90?0:90); }
+
+/* --- тач по планшету → абсолютный курсор (SendInput MOVE|ABSOLUTE|VIRTUALDESK) --- */
+function tabletPointToNorm(ev){
+  const r=tablet.getBoundingClientRect();
+  let tx=(ev.clientX-r.left)/r.width, ty=(ev.clientY-r.top)/r.height;
+  let nx,ny;                                   // аналог _map_point
+  if(rotDeg===90){ [nx,ny]=[ty,1-tx]; } else if(rotDeg===180){ [nx,ny]=[1-tx,1-ty]; }
+  else if(rotDeg===270){ [nx,ny]=[1-ty,tx]; } else { [nx,ny]=[tx,ty]; }
+  let rr=desiredRotation(rotDeg);
+  for(let i=0;i<rr;i++){ [nx,ny]=[1-ny,nx]; } // компенсация доворота кадра
+  return [Math.min(1,Math.max(0,nx)),Math.min(1,Math.max(0,ny))];
+}
+let lpTimer=null;
+tablet.addEventListener('pointerdown',e=>{
+  if(!connected) connectTablet();
+  const [nx,ny]=tabletPointToNorm(e);
+  cursor={x:nx,y:ny}; down=true;
+  ripple(e);
+  log('i','TOUCH ↓ x='+nx.toFixed(3)+' y='+ny.toFixed(3)+' → SendInput(MOVE|ABSOLUTE)+LBUTTONDOWN');
+  clearTimeout(lpTimer);
+  lpTimer=setTimeout(()=>{                 // LONGPRESS_S=0.65 → правый клик
+    rightClickFx=1; down=false;
+    log('y','LONGPRESS 0.65s → LBUTTONUP, RBUTTONDOWN/UP (правый клик)');
+  },650);
+  try{tablet.setPointerCapture(e.pointerId);}catch(_){}
+});
+tablet.addEventListener('pointermove',e=>{
+  if(!down) return;
+  const [nx,ny]=tabletPointToNorm(e);
+  if(Math.hypot(nx-cursor.x,ny-cursor.y)>0.0004){ cursor={x:nx,y:ny}; }
+});
+window.addEventListener('pointerup',()=>{
+  if(down){ down=false; log('i','TOUCH ↑ → LBUTTONUP (клик/перетаскивание завершены)'); }
+  clearTimeout(lpTimer);
+});
+function ripple(e){
+  const r=tablet.getBoundingClientRect();
+  const d=document.createElement('div'); d.className='ripple';
+  d.style.left=(e.clientX-r.left)+'px'; d.style.top=(e.clientY-r.top)+'px';
+  tablet.appendChild(d); setTimeout(()=>d.remove(),520);
+}
+
+/* --- телеметрия --- */
+function updateTelemetry(){
+  const r=desiredRotation(rotDeg);
+  document.getElementById('telemetry').innerHTML = connected?
+    'поток: <b>H.264 annex-b, флаг "'+(r?'V':'v')+'"</b> (программный доворот '+((r*90)%360)+'°)<br>'+
+    'подгонка: <b>aspect-fit (letterbox)</b> под '+(rotDeg===90?'2560×1600':'1600×2560')+' планшета<br>'+
+    'курсор: <b>absolute</b> → '+Math.round(cursor.x*PC_W)+' , '+Math.round(cursor.y*PC_H)+' px<br>'+
+    'longpress: 0.65 c → правый клик · щипок → Ctrl+колесо':
+    'нет активного клиента';
+}
+
+/* --- цикл отрисовки + «FPS» --- */
+let lastT=performance.now(), frames=0, acc=0;
+function loop(t){
+  drawPC(t);
+  if(rightClickFx>0) rightClickFx=Math.max(0,rightClickFx-0.02);
+  if(wheelFx!==0) wheelFx=0;
+  frames++; acc+=t-lastT; lastT=t;
+  if(acc>1000){ fpsShown=connected?Math.round(frames*1000/acc):0;
+    setPill('st-fps','FPS: '+(fpsShown||'—'), fpsShown?'ok':'idle');
+    updateTelemetry(); frames=0; acc=0; }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+log('i','INFO  tabletserver: Сервер запущен. Подключение с планшета:');
+log('i','INFO  tabletserver:   Wi-Fi : ws://192.168.1.10:8765   USB: adb forward tcp:8765 tcp:8765');
+setInterval(()=>{ if(connected && Math.random()<0.04){ wheelFx=1;
+  log('m','PINCH → CTRL+MOUSEWHEEL ticks=-2 (зум документа)'); } }, 1000);
+</script>
+</body>
+</html>

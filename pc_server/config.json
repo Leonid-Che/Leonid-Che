@@ -1,0 +1,13 @@
+{
+  "host": "0.0.0.0",
+  "port": 8765,
+  "monitor_index": 1,
+  "fps": 30,
+  "bitrate_mbps": 8,
+  "max_width": 1920,
+  "gop_seconds": 1,
+  "encoder": "h264_nvenc",
+  "rotate_display": true,
+  "cursor_mode": "absolute",
+  "token": ""
+}
