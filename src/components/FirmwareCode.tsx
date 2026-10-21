@@ -8,7 +8,31 @@ const firmwareCode = `/*
  * Библиотека: ElectronicCats MPU6050
  * https://github.com/ElectronicCats/mpu6050
  * 
- * Распиновка Arduino Pro Micro (ATmega32U4):
+ * ==========================================
+ *  СОВМЕСТИМОСТЬ С ПЛАТАМИ:
+ * ==========================================
+ *  ✓ Arduino Pro Micro 5V / 16 MHz  — РАБОТАЕТ (этот код)
+ *  ✓ Arduino Pro Micro 3.3V / 8 MHz — РАБОТАЕТ (этот код)
+ *  Код не зависит от тактовой частоты и напряжения логики.
+ *  
+ *  ВАЖНО ПО ПИТАНИЮ MPU6050 (GY-521):
+ *  ─────────────────────────────────────
+ *  • Сам чип MPU6050 работает от 2.4V до 3.6V
+ *  • Модуль GY-521 имеет встроенный стабилизатор 3.3V,
+ *    поэтому его можно питать от 5V (VCC → 5V)
+ *  • Если на модуле НЕТ стабилизатора — питать строго от 3.3V!
+ *  
+ *  УРОВНИ СИГНАЛОВ I2C:
+ *  ─────────────────────
+ *  • На Pro Micro 5V линии SDA/SCL имеют уровень 5V
+ *  • MPU6050 — 3.3V устройство
+ *  • Большинство модулей GY-521 толерантны к 5V на I2C
+ *    (имеют pull-up к 3.3V на плате)
+ *  • Если возникают сбои — используйте level shifter
+ *    или питайте Pro Micro от 3.3V (выбрав в Arduino IDE
+ *    "Arduino Pro Micro 3.3V, 8 MHz")
+ * 
+ * Распиновка Arduino Pro Micro:
  * ┌─────────────────────────────────────┐
  * │  I2C:  SDA = D2,  SCL = D3         │
  * │  Кнопка: D4 (INPUT_PULLUP)          │
@@ -67,6 +91,11 @@ void setup() {
   mpu.initialize();
   
   if (!mpu.testConnection()) {
+    // Ошибка: MPU6050 не отвечает.
+    // Проверьте:
+    //  - Подключение SDA→D2, SCL→D3
+    //  - Питание VCC (5V или 3.3V в зависимости от модуля)
+    //  - Адрес 0x68 (по умолчанию)
     while (true) {
       digitalWrite(LED_PIN, !digitalRead(LED_PIN));
       delay(50);
@@ -251,6 +280,40 @@ export default function FirmwareCode() {
         </button>
       </div>
 
+      {/* Предупреждение для Pro Micro 5V */}
+      {activeTab === 'arduino' && (
+        <div className="mb-4 bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+          <h4 className="text-sm font-semibold text-amber-300 mb-2">
+            <i className="fas fa-bolt mr-2"></i>
+            Совместимость с Pro Micro 5V / 16 MHz
+          </h4>
+          <p className="text-xs text-amber-200/80 leading-relaxed mb-2">
+            Код <strong>полностью совместим</strong> с обеими версиями Pro Micro (5V/16 MHz и 3.3V/8 MHz).
+            В Arduino IDE выбирайте вашу версию платы — на работу прошивки это не влияет.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
+            <div className="bg-slate-900/50 rounded p-2">
+              <div className="text-xs font-bold text-green-300 mb-1">
+                <i className="fas fa-check-circle mr-1"></i>
+                Прошивка (код)
+              </div>
+              <div className="text-xs text-slate-300">
+                Одинаковая для 5V и 3.3V версий. Библиотека MPU6050 не зависит от тактовой частоты.
+              </div>
+            </div>
+            <div className="bg-slate-900/50 rounded p-2">
+              <div className="text-xs font-bold text-yellow-300 mb-1">
+                <i className="fas fa-exclamation-triangle mr-1"></i>
+                Подключение MPU6050
+              </div>
+              <div className="text-xs text-slate-300">
+                Требует внимания к питанию и уровням I2C (см. ниже).
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mb-4 bg-slate-900/50 rounded-lg p-3 border border-slate-700">
         <h4 className="text-xs font-semibold text-slate-400 mb-2">
           <i className="fas fa-map-pin text-cyan-400 mr-1"></i>
@@ -334,6 +397,60 @@ export default function FirmwareCode() {
           <div className="text-xs text-cyan-300 font-mono">±2g (макс. чувствительность)</div>
         </div>
       </div>
+
+      {/* Детальная информация по питанию для Pro Micro */}
+      {activeTab === 'arduino' && (
+        <div className="mt-4 bg-slate-900/50 rounded-lg p-4 border border-slate-700">
+          <h4 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
+            <i className="fas fa-plug text-red-400"></i>
+            Питание MPU6050 при использовании Pro Micro 5V
+          </h4>
+          <div className="space-y-3 text-xs text-slate-300">
+            <div className="bg-slate-800/50 rounded p-3 border-l-2 border-green-500">
+              <div className="font-bold text-green-300 mb-1">
+                ✓ Вариант A: Модуль GY-521 со стабилизатором (большинство)
+              </div>
+              <p className="text-slate-400">
+                Подключите <code className="bg-slate-700 px-1 rounded">VCC → 5V</code> на Pro Micro.
+                Встроенный регулятор модуля понизит до 3.3V для чипа.
+                Pull-up резисторы I2C на плате обычно подключены к 3.3V,
+                что обеспечивает корректную работу с 5V логикой Pro Micro.
+              </p>
+            </div>
+            <div className="bg-slate-800/50 rounded p-3 border-l-2 border-yellow-500">
+              <div className="font-bold text-yellow-300 mb-1">
+                ⚠ Вариант B: Модуль без стабилизатора
+              </div>
+              <p className="text-slate-400">
+                Подключите <code className="bg-slate-700 px-1 rounded">VCC → 3.3V</code> на Pro Micro.
+                Обязательно используйте level shifter для линий SDA/SCL,
+                либо задействуйте встроенный 3.3V регулятор Pro Micro.
+              </p>
+            </div>
+            <div className="bg-slate-800/50 rounded p-3 border-l-2 border-blue-500">
+              <div className="font-bold text-blue-300 mb-1">
+                💡 Вариант C: Pro Micro 3.3V / 8 MHz (альтернатива)
+              </div>
+              <p className="text-slate-400">
+                Если есть возможность, используйте 3.3V версию Pro Micro —
+                тогда все уровни сигналов совпадают с MPU6050 и не нужны
+                дополнительные преобразователи. В Arduino IDE выберите
+                плату <em>"SparkFun Pro Micro" → "ATmega32U4 (3.3V, 8 MHz)"</em>.
+              </p>
+            </div>
+            <div className="bg-red-500/10 border border-red-500/30 rounded p-3">
+              <div className="font-bold text-red-300 mb-1">
+                <i className="fas fa-skull-crossbones mr-1"></i>
+                НЕЛЬЗЯ делать
+              </div>
+              <ul className="text-slate-400 space-y-1 list-disc list-inside">
+                <li>Подавать 5V напрямую на чип MPU6050 (без стабилизатора) — сгорит!</li>
+                <li>Оставлять AD0 висеть в воздухе — подключите к GND (адрес 0x68)</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
