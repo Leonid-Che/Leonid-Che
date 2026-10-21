@@ -304,10 +304,18 @@ export default function FirmwareCode() {
 
       <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-700">
-          <div className="text-xs text-slate-400 mb-1">Библиотеки</div>
-          <div className="text-xs text-cyan-300 font-mono">
-            {activeTab === 'arduino' ? 'Wire, MPU6050' : 'Wire, Adafruit_MPU6050, USB, USBHID'}
-          </div>
+          <div className="text-xs text-slate-400 mb-1">Библиотека датчика</div>
+          <a
+            href={activeTab === 'arduino'
+              ? 'https://github.com/ElectronicCats/mpu6050'
+              : 'https://github.com/adafruit/Adafruit_MPU6050'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-cyan-300 font-mono hover:text-cyan-200 hover:underline inline-flex items-center gap-1"
+          >
+            <i className="fab fa-github"></i>
+            {activeTab === 'arduino' ? 'ElectronicCats/mpu6050' : 'adafruit/Adafruit_MPU6050'}
+          </a>
         </div>
         <div className="bg-slate-900/50 rounded-lg p-3 border border-slate-700">
           <div className="text-xs text-slate-400 mb-1">Частота опроса</div>
