@@ -5,6 +5,9 @@ const firmwareCode = `/*
  * Микроконтроллер: Arduino Pro Micro (ATmega32U4)
  * Датчик: MPU6050 (акселерометр + гироскоп)
  * 
+ * Библиотека: ElectronicCats MPU6050
+ * https://github.com/ElectronicCats/mpu6050
+ * 
  * Распиновка Arduino Pro Micro (ATmega32U4):
  * ┌─────────────────────────────────────┐
  * │  I2C:  SDA = D2,  SCL = D3         │
@@ -15,24 +18,24 @@ const firmwareCode = `/*
  */
 
 #include <Wire.h>
+#include <I2Cdev.h>
 #include <MPU6050.h>
 
 // === Пины Arduino Pro Micro ===
 #define BUTTON_PIN 4      // Кнопка (D4, INPUT_PULLUP)
 #define LED_PIN 6         // Индикатор активности (D6)
-#define MPU_ADDR 0x68     // Адрес MPU6050 на шине I2C
 // I2C пины на Pro Micro: SDA=D2, SCL=D3 (аппаратные)
 
 // Структура пакета данных (8 байт)
 typedef struct {
-  int16_t accelX;    // Ускорение по X (raw)
-  int16_t accelY;    // Ускорение по Y (raw)
-  int16_t accelZ;    // Ускорение по Z (raw)
-  uint8_t button;    // Состояние кнопки (1=нажата)
-  uint8_t reserved;  // Заполнитель
+  int16_t accelX;
+  int16_t accelY;
+  int16_t accelZ;
+  uint8_t button;
+  uint8_t reserved;
 } __attribute__((packed)) PenPacket_t;
 
-MPU6050 mpu(MPU_ADDR);
+MPU6050 mpu;
 PenPacket_t packet;
 
 // Калибровка нуля
@@ -41,17 +44,16 @@ const int CALIBRATION_SAMPLES = 200;
 
 void calibrate() {
   float sumX = 0, sumY = 0, sumZ = 0;
-  
   for (int i = 0; i < CALIBRATION_SAMPLES; i++) {
     sumX += mpu.getAccelerationX();
     sumY += mpu.getAccelerationY();
     sumZ += mpu.getAccelerationZ();
     delay(5);
   }
-  
   offsetAX = sumX / CALIBRATION_SAMPLES;
   offsetAY = sumY / CALIBRATION_SAMPLES;
-  offsetAZ = (sumZ / CALIBRATION_SAMPLES) - 1.0;
+  // 1g = 16384 LSB при диапазоне ±2g
+  offsetAZ = (sumZ / CALIBRATION_SAMPLES) - 16384.0;
 }
 
 void setup() {
@@ -66,19 +68,24 @@ void setup() {
   
   if (!mpu.testConnection()) {
     while (true) {
-      digitalWrite(LED_PIN, HIGH);
-      delay(50);
-      digitalWrite(LED_PIN, LOW);
+      digitalWrite(LED_PIN, !digitalRead(LED_PIN));
       delay(50);
     }
   }
   
-  mpu.setFullScaleAccelRange(MPU6050_IMU::MPU6050_ACCEL_FS_2);
-  mpu.setRate(MPU6050_RATE_1KHZ);
-  mpu.setDLPFMode(MPU6050_DLPF_BW_44);
+  // ±2g (максимальная чувствительность), 1g = 16384 LSB
+  mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);
+  
+  // Sample Rate = Gyro Output Rate / (1 + SMPLRT_DIV)
+  // SMPLRT_DIV=0 → максимальная частота (~1kHz при DLPF on)
+  mpu.setRate(0);
+  
+  // DLPF 42 Гц — сглаживание шума
+  mpu.setDLPFMode(MPU6050_DLPF_BW_42);
   
   calibrate();
   
+  // Мигаем LED — готов
   for (int i = 0; i < 3; i++) {
     digitalWrite(LED_PIN, HIGH);
     delay(100);
@@ -100,14 +107,13 @@ void loop() {
     packet.accelY = (int16_t)(rawAY - offsetAY);
     packet.accelZ = (int16_t)(rawAZ - offsetAZ);
     packet.button = 1;
-    packet.reserved = 0;
   } else {
     packet.accelX = 0;
     packet.accelY = 0;
     packet.accelZ = 0;
     packet.button = 0;
-    packet.reserved = 0;
   }
+  packet.reserved = 0;
   
   Serial.write((uint8_t*)&packet, sizeof(packet));
   delay(5); // 200 Hz
@@ -115,6 +121,9 @@ void loop() {
 
 const esp32Code = `/*
  * AeroPen — версия для ESP32-S2/S3 (нативный USB)
+ * 
+ * Библиотека: Adafruit MPU6050
+ * https://github.com/adafruit/Adafruit_MPU6050
  * 
  * Распиновка ESP32-S2:
  * ┌─────────────────────────────────────┐
@@ -204,7 +213,6 @@ void loop() {
     int8_t dy = constrain((int)(ay * 3.0), -127, 127);
     hidDev.mouseMove(dx, dy);
   }
-  
   delay(5);
 }`;
 
