@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TabletTouch</string>
+
+    <!-- Экран подключения -->
+    <string name="title_connect">Подключение к компьютеру</string>
+    <string name="subtitle_connect">Сервер TabletTouch на Windows 10 (порт 8765)</string>
+    <string name="mode_wifi">Wi-Fi</string>
+    <string name="mode_usb">USB-кабель</string>
+    <string name="hint_host">IP-адрес компьютера, напр. 192.168.1.50</string>
+    <string name="hint_port">Порт</string>
+    <string name="hint_token">Токен (если задан в config.json сервера)</string>
+    <string name="btn_connect">Подключиться</string>
+    <string name="btn_disconnect">Отключиться</string>
+    <string name="usb_help_title">Как подключить по USB-кабелю</string>
+    <string name="usb_help_body">1. Включите на планшете «Отладку по USB» (Параметры → Система → Для разработчиков).\n2. Установите ADB на компьютере и подключите кабель.\n3. Выполните в командной строке:\n   adb forward tcp:8765 tcp:8765\n4. Нажмите «Подключиться» — планшет откроет ws://127.0.0.1:8765.</string>
+    <string name="status_idle">Не подключено</string>
+    <string name="status_connecting">Подключение…</string>
+    <string name="status_connected">Соединение установлено</string>
+    <string name="status_disconnected">Соединение потеряно</string>
+    <string name="err_bad_address">Укажите IP-адрес компьютера</string>
+    <string name="err_not_found">Сервер не найден в локальной сети. Запустите TabletTouchServer.exe и введите его адрес вручную.</string>
+    <string name="scan_hint">Найти сервер в сети Wi-Fi автоматически</string>
+    <string name="recent_title">Последние подключения</string>
+    <string name="auto_reconnect">Переподключаться автоматически</string>
+
+    <!-- HUD поверх видео -->
+    <string name="hud_format">%1$s · %2$d FPS · %3$d мс</string>
+    <string name="back">Назад</string>
+    <string name="rotate_lock">Фиксация ориентации потока</string>
+</resources>
