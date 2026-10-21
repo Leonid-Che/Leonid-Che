@@ -57,7 +57,7 @@ class AeroPen:
         samples = []
         for i in range(CALIBRATION_SAMPLES):
             data = self.read_packet()
-            if 
+            if data:
                 ax, ay, az, button, _ = data
                 samples.append([ax, ay, az])
             time.sleep(0.01)
@@ -128,7 +128,7 @@ class AeroPen:
         try:
             while self.running:
                 data = self.read_packet()
-                if not 
+                if not data:
                     continue
                 
                 ax, ay, az, button, _ = data
