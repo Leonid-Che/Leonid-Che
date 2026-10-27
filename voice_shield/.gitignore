@@ -9,3 +9,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Gradle/IDE артефакты — не коммитить
+.gradle/
+build/
+local.properties
+captures/
