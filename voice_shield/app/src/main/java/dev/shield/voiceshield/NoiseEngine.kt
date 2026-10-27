@@ -30,7 +30,7 @@ class NoiseEngine {
 
     private val sampleRate = 48000
     private val frameCount = 4096
-    private val targetRms = 0.25   // до применения gain
+    private val targetRms = 0.25f   // до применения gain
 
     fun start() {
         if (playing) return
@@ -118,8 +118,8 @@ class NoiseEngine {
      */
     private fun fillSpeechBand(o: FloatArray) {
         // a = 1 - exp(-2*pi*fc/fs), fs = 48000
-        val aLow = 1f - Math.exp(-2.0 * Math.PI * 300.0 / 48000.0).toFloat()
-        val aHi = 1f - Math.exp(-2.0 * Math.PI * 3400.0 / 48000.0).toFloat()
+        val aLow = (1.0 - Math.exp(-2.0 * Math.PI * 300.0 / 48000.0)).toFloat()
+        val aHi = (1.0 - Math.exp(-2.0 * Math.PI * 3400.0 / 48000.0)).toFloat()
 
         var lp300 = 0f; var lpA = 0f; var lpB = 0f
         for (i in o.indices) {
@@ -138,6 +138,6 @@ class NoiseEngine {
         val rms = Math.sqrt(acc / o.size).toFloat()
         if (rms < 1e-6f) { java.util.Arrays.fill(o, 0f); return }
         val k = targetRms / rms
-        for (i in o.indices) o[i] = (o[i] * k).coerceIn(-1f, 1f)
+        for (i in o.indices) o[i] = (o[i] * k).coerceIn(-1.0f, 1.0f)
     }
 }

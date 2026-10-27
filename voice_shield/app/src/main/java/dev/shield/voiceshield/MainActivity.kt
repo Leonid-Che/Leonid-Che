@@ -1,6 +1,8 @@
 package dev.shield.voiceshield
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -26,17 +28,33 @@ class MainActivity : AppCompatActivity() {
     private lateinit var toggleBtn: Button
     private lateinit var auditBtn: Button
 
+    /** Доступен для ShieldService (строит уведомление статуса). */
+    companion object {
+        @JvmStatic
+        var viewModel: ShieldViewModel? = null
+
+        /** Вызывается сервисом при остановке: корректно гасим щит. */
+        fun onServiceDestroyed(vm: ShieldViewModel, ctx: Context) {
+            if (vm.shieldActive.value == true) vm.deactivate(ctx)
+        }
+    }
+
     private val micPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) vm.activate(this) else vm.addLog("Разрешение RECORD_AUDIO не выдано — сентинел недоступен")
+        if (granted) activateShield() else vm.addLog("Разрешение RECORD_AUDIO не выдано — сентинел недоступен")
     }
+
+    private val notifPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* уведомление не критично — продолжаем без него */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         vm = ViewModelProvider(this)[ShieldViewModel::class.java]
+        viewModel = vm
 
         statusText = findViewById(R.id.statusText)
         logText = findViewById(R.id.logText)
@@ -63,11 +81,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         toggleBtn.setOnClickListener {
-            if (vm.shieldActive.value == true) {
-                vm.deactivate(this)
-            } else {
-                ensureMicPermissionThenActivate()
-            }
+            if (vm.shieldActive.value == true) stopShield() else ensureMicPermissionThenActivate()
         }
 
         auditBtn.setOnClickListener { vm.reaudit() }
@@ -80,7 +94,30 @@ class MainActivity : AppCompatActivity() {
     private fun ensureMicPermissionThenActivate() {
         val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
-        if (granted) vm.activate(this) else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        if (granted) activateShield() else micPermission.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    /** Активация щита + запуск foreground-сервиса (шум не должен прервись при гашении экрана). */
+    private fun activateShield() {
+        vm.activate(this)
+        requestNotificationPermissionIfNeeded()
+        val intent = Intent(this, ShieldService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent)
+        else startService(intent)
+    }
+
+    private fun stopShield() {
+        vm.deactivate(this)
+        stopService(Intent(this, ShieldService::class.java))
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     private fun updateUi(active: Boolean, st: MicSentinel.MicStatus?) {
@@ -98,7 +135,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        if (vm.shieldActive.value == true) vm.deactivate(this)
+        // НЕ глушим щит при повороте экрана: он живёт в ViewModel и сервисе.
         super.onDestroy()
     }
 }

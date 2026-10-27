@@ -82,6 +82,7 @@ class ShieldViewModel : ViewModel() {
         if (_shieldActive.value != true) return
         engine.stop()
         sentinel?.releaseOccupation()
+        runCatching { java.io.File(ctx.cacheDir, "sink.3gp").delete() }
         sentinel = null
         _micStatus.postValue(null)
         _shieldActive.postValue(false)
