@@ -12,7 +12,7 @@
 | Захват микрофона «на себя» на время работы щита | `MicSentinel.kt` — MediaRecorder держит AudioSource.MIC; фоновые приложения (в т.ч. потенциально взломанные) получают ошибку захвата или вытесняются системой |
 | Детекция активного прослушивателя | Если захватить MIC не удалось — ресурс уже занят другим процессом → UI честно показывает предупреждение |
 | Периодический аудит владения MIC | Кнопка «Проверить захват микрофона» |
-| Работа с выключенным экраном | Уведомление (рекомендуется доработать до foreground-service типа `mediaPlayback`) |
+| Работа с выключенным экраном | `ShieldService.kt` — foreground-сервис типа `mediaPlayback` + уведомление статуса |
 
 ## Чего приложение НЕ делает (и почему)
 
@@ -28,9 +28,15 @@
 
 ## Сборка
 
+**Готовый APK:** `dist/VoiceShield-v1.0-debug.apk` (собран и подписан debug-ключом,
+проверен `apksigner verify`). Установка: `adb install -r dist/VoiceShield-v1.0-debug.apk`.
+
+Полная инструкция для Android Studio — в [BUILD.md](BUILD.md).
+
 ```
 Android Studio → Open project → voice_shield/ → Build
 minSdk 29, targetSdk 34, Kotlin, без нативных зависимостей.
+CLI-эквивалент: ./gradlew assembleDebug
 ```
 
 ## Использование
