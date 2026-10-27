@@ -1,0 +1,17 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/app/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Gradle/IDE артефакты — не коммитить
+.gradle/
+build/
+local.properties
+captures/

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Захват микрофона как «лок» против фонового прослушивания -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Шум должен продолжаться при выключенном экране -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Приложение НЕ требует и НЕ использует динамики других устройств,
+        Bluetooth, Wi-Fi или модем: только собственный динамик и микрофон. -->
+    <uses-feature android:name="android.hardware.microphone" android:required="true" />
+    <uses-feature android:name="android.hardware.speaker" android:required="true" />
+
+    <application
+        android:label="Voice Shield"
+        android:allowBackup="false"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AppCompat.DayNight.DarkActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Foreground-сервис: шум играет при погасшем экране и закрытом приложении -->
+        <service
+            android:name=".ShieldService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+    </application>
+</manifest>
