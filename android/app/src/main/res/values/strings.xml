@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TouchCursor</string>
+
+    <string name="ip_label">IP компьютера:</string>
+    <string name="ip_hint">192.168.1.10</string>
+    <string name="enter_ip">Введите IP-адрес компьютера</string>
+
+    <string name="control_on">Управление: ВКЛ (нажмите, чтобы выключить)</string>
+    <string name="control_off">Управление: ВЫКЛ (нажмите, чтобы включить)</string>
+
+    <string name="status_idle">Ожидание</string>
+    <string name="status_service_stopped">Сервис остановлен</string>
+    <string name="status_connected">Подключено: %1$s</string>
+    <string name="status_connecting">Подключение к %1$s…</string>
+
+    <string name="touchpad_hint">Выключено. Нажмите кнопку внизу, чтобы включить управление.</string>
+
+    <string name="btn_lclick">ЛКМ</string>
+    <string name="btn_ldouble">ЛКМ×2</string>
+    <string name="btn_rclick">ПКМ</string>
+    <string name="btn_scroll_up">▲</string>
+    <string name="btn_scroll_down">▼</string>
+    <string name="btn_help">?</string>
+
+    <!-- Кнопки выбора канала подключения внизу экрана -->
+    <string name="btn_conn_wifi">Wi-Fi</string>
+    <string name="btn_conn_usb">USB</string>
+    <string name="btn_conn_bt">BT</string>
+    <string name="conn_mode_changed">Канал подключения: %1$s</string>
+    <string name="bt_need_pair">Сначала сопрягите телефон с Bluetooth-адаптером компьютера (настройки → Bluetooth).</string>
+    <string name="usb_need_cable">Подключите телефон USB-кабелем к компьютеру и разрешите доступ, когда появится запрос.</string>
+
+    <!-- Кнопки скорости перемещения курсора -->
+    <string name="btn_speed_down">−</string>
+    <string name="btn_speed_up">+</string>
+    <string name="speed_default_label">5</string>
+    <string name="speed_level">Скорость: %1$d</string>
+
+    <string name="back_blocked">Сначала выключите управление нижней кнопкой</string>
+
+    <string name="channel_name">Управление курсором</string>
+    <string name="notification_idle">TouchCursor: управление выключено</string>
+    <string name="notification_connecting">TouchCursor: установка соединения…</string>
+    <string name="notification_connected">Управление включено, канал: %1$s</string>
+    <string name="notification_reconnecting">Переподключение: %1$s</string>
+    <string name="status_no_link">нет связи с компьютером</string>
+
+    <string name="help_title">Как пользоваться</string>
+    <string name="help_text">
+        1. Выберите канал связи кнопками внизу экрана:\n
+        • Wi-Fi — введите IP компьютера (сервер: python -m touchcursor_server),
+        телефон и ПК в одной сети;\n
+        • USB — подключите телефон кабелем к ПК; запустите сервер с ключом
+        --usb (python -m touchcursor_server --usb) и подтвердите запрос
+        «Разрешить доступ к устройству»; интернет не нужен;\n
+        • BT — сопрягите телефон с Bluetooth-адаптером ПК и запустите сервер
+        с ключом --bt (python -m touchcursor_server --bt).\n\n
+        2. Нажмите нижнюю кнопку для включения управления:\n
+        • ведите пальцем по экрану — курсор ПК следует за пальцем;\n
+        • Громкость+ (однократно) = клик ЛКМ;\n
+        • Громкость+ дважды подряд = двойной клик ЛКМ;\n
+        • Громкость- (коротко) = клик ПКМ;\n
+        • удержание Громкость- = зажатая ПКМ (drag-and-drop), отпустили — отпущена;\n
+        • два пальца вверх/вниз на тачпаде или кнопки ▲▼ = колесо мыши.\n\n
+        3. Кнопки −/+ меняют скорость перемещения курсора (уровень 1..10):\n
+        при малой скорости палец можно вести медленнее, при большой — курсор
+        летит быстрее; текущий уровень показан между кнопками.\n\n
+        Пока управление включено, кнопки громкости НЕ регулируют звук смартфона.
+        Кнопки ЛКМ/ПКМ на экране — дубликаты кнопок громкости.
+    </string>
+</resources>
