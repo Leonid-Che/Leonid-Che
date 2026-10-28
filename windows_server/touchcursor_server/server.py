@@ -7,28 +7,60 @@ TCP-сервер для Windows 10. Принимает команды от Andro
 По умолчанию порт 5575.
 """
 import argparse
+import ctypes
 import json
 import logging
+import os
 import socket
+import sys
 import threading
-
-import win32api
-import win32con
+from ctypes.wintypes import DWORD, LONG
 
 from . import protocol
 
 log = logging.getLogger("touchcursor")
 
+# --- Win32 API через ctypes (а не pywin32) -------------------------------
+# Использование стандартного ctypes позволяет собрать сервер в один
+# self-contained EXE (PyInstaller) без нативных DLL pywin32.
+user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+SM_CXSCREEN = 0
+SM_CYSCREEN = 1
+SM_CXVIRTUALSCREEN = 7
+SM_CYVIRTUALSCREEN = 8
+SM_XVIRTUALSCREEN = 76
+SM_YVIRTUALSCREEN = 77
+
+MOUSEEVENTF_MOVE = 0x0001
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_RIGHTDOWN = 0x0008
+MOUSEEVENTF_RIGHTUP = 0x0010
+MOUSEEVENTF_WHEEL = 0x0800
+MOUSEEVENTF_VIRTUALDESK = 0x4000
+MOUSEEVENTF_ABSOLUTE = 0x8000
+
+user32.mouse_event.argtypes = [DWORD, LONG, LONG, LONG, ctypes.c_void_p]
+user32.mouse_event.restype = UINT = DWORD
+user32.GetSystemMetrics.argtypes = [ctypes.c_int]
+user32.GetSystemMetrics.restype = ctypes.c_int
+
+
+def _get_system_metrics(index: int) -> int:
+    return user32.GetSystemMetrics(index)
+
+
 BUTTON_MAP = {
     "left": {
-        "down": win32con.MOUSEEVENTF_LEFTDOWN,
-        "up": win32con.MOUSEEVENTF_LEFTUP,
-        "click": win32con.MOUSEEVENTF_LEFTDOWN | win32con.MOUSEEVENTF_LEFTUP,
+        "down": MOUSEEVENTF_LEFTDOWN,
+        "up": MOUSEEVENTF_LEFTUP,
+        "click": MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_LEFTUP,
     },
     "right": {
-        "down": win32con.MOUSEEVENTF_RIGHTDOWN,
-        "up": win32con.MOUSEEVENTF_RIGHTUP,
-        "click": win32con.MOUSEEVENTF_RIGHTDOWN | win32con.MOUSEEVENTF_RIGHTUP,
+        "down": MOUSEEVENTF_RIGHTDOWN,
+        "up": MOUSEEVENTF_RIGHTUP,
+        "click": MOUSEEVENTF_RIGHTDOWN | MOUSEEVENTF_RIGHTUP,
     },
 }
 
@@ -40,8 +72,8 @@ class InputController:
         self._last_abs = None  # кэш последней позиции для экономии вызовов
 
     def _screen_size(self):
-        w = win32api.GetSystemMetrics(win32con.SM_CXSCREEN)
-        h = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
+        w = _get_system_metrics(SM_CXSCREEN)
+        h = _get_system_metrics(SM_CYSCREEN)
         return max(1, w), max(1, h)
 
     def move_to(self, fx: float, fy: float):
@@ -52,11 +84,9 @@ class InputController:
         if self._last_abs == (norm_x, norm_y):
             return
         self._last_abs = (norm_x, norm_y)
-        win32api.mouse_event(
-            win32con.MOUSEEVENTF_MOVE
-            | win32con.MOUSEEVENTF_ABSOLUTE
-            | win32con.MOUSEEVENTF_VIRTUALDESK,
-            norm_x, norm_y, 0, 0,
+        user32.mouse_event(
+            MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK,
+            norm_x, norm_y, 0, None,
         )
 
     def move_rel(self, dx: int, dy: int):
@@ -64,32 +94,32 @@ class InputController:
         dx, dy = int(dx), int(dy)
         if dx or dy:
             self._last_abs = None  # относительное движение сбивает кэш абсолютной позиции
-            win32api.mouse_event(win32con.MOUSEEVENTF_MOVE, dx, dy, 0, 0)
+            user32.mouse_event(MOUSEEVENTF_MOVE, dx, dy, 0, None)
 
     def click(self, button: str, double: bool = False):
         flags = BUTTON_MAP[button]["click"]
-        win32api.mouse_event(flags, 0, 0, 0, 0)
+        user32.mouse_event(flags, 0, 0, 0, None)
         if double:
             # Двойной клик на Windows - не два клика подряд, а событие CLICK +
             # повторный клик с интервалом меньше DoubleClickTime.
-            win32api.mouse_event(flags, 0, 0, 0, 0)
+            user32.mouse_event(flags, 0, 0, 0, None)
 
     def screen_size(self):
         """Разрешение основного экрана в пикселях (для hello-ответа клиенту)."""
-        w = win32api.GetSystemMetrics(win32con.SM_CXSCREEN)
-        h = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
+        w = _get_system_metrics(SM_CXSCREEN)
+        h = _get_system_metrics(SM_CYSCREEN)
         return w, h
 
     def button_down(self, button: str):
-        win32api.mouse_event(BUTTON_MAP[button]["down"], 0, 0, 0, 0)
+        user32.mouse_event(BUTTON_MAP[button]["down"], 0, 0, 0, None)
 
     def button_up(self, button: str):
-        win32api.mouse_event(BUTTON_MAP[button]["up"], 0, 0, 0, 0)
+        user32.mouse_event(BUTTON_MAP[button]["up"], 0, 0, 0, None)
 
     def scroll(self, dy: float):
         step = int(round(dy * 120))
         if step:
-            win32api.mouse_event(win32con.MOUSEEVENTF_WHEEL, 0, 0, step, 0)
+            user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, step, None)
 
 
 class ClientHandler(threading.Thread):
@@ -210,7 +240,12 @@ def serve_tcp(ctrl: InputController, port: int):
     log.info("TCP-сервер (Wi-Fi) запущен на порту %d", port)
     for ip in get_local_ips():
         log.info("  IP в локальной сети: %s", ip)
-    log.info("Откройте в брандмауэре Windows входящий TCP-порт %d для программы Python.", port)
+    if getattr(sys, "frozen", False):
+        log.info("Запуск из EXE: разрешите доступ в брандмауэре для TouchCursorServer.exe "
+                 "(или выполните от администратора: netsh advfirewall firewall add rule "
+                 "name=TouchCursor dir=in action=allow protocol=TCP localport=%d)", port)
+    else:
+        log.info("Откройте в брандмауэре Windows входящий TCP-порт %d для программы Python.", port)
 
     try:
         while True:
@@ -257,6 +292,10 @@ def main(argv=None):
                         help="принимать команды по Bluetooth через COM-порт, напр. --bt COM5")
     args = parser.parse_args(argv)
 
+    if sys.platform != "win32":
+        print("TouchCursorServer можно запускать только в Windows 10/11.", file=sys.stderr)
+        sys.exit(1)
+
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     ctrl = InputController()
@@ -271,5 +310,35 @@ def main(argv=None):
         log.info("Остановка сервера.")
 
 
+def _run():
+    """Точка входа для EXE-сборки (PyInstaller).
+
+    В оконном (--noconsole) режиме консольного вывода нет, поэтому ошибки
+    пишем в лог-файл рядом с EXE и показываем окно сообщения.
+    """
+    try:
+        main()
+    except Exception as exc:  # noqa: BLE001
+        if getattr(sys, "frozen", False):
+            import traceback
+            base = os.path.dirname(sys.executable)
+            log_path = os.path.join(base, "touchcursor_server.log")
+            try:
+                with open(log_path, "a", encoding="utf-8") as fh:
+                    fh.write(traceback.format_exc())
+            except OSError:
+                pass
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    None,
+                    "Ошибка запуска TouchCursor Server:\n%s\n\nПодробности: %s" % (exc, log_path),
+                    "TouchCursor Server", 0x10,  # MB_ICONERROR
+                )
+            except Exception:
+                pass
+        raise
+
+
 if __name__ == "__main__":
-    main()
+    _run()
