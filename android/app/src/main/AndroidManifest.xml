@@ -14,6 +14,14 @@
     <!-- Уведомление foreground-сервиса (обязательно с Android 13) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- С Android 12 (API 31) запуск foreground-сервиса типа connectedDevice требует,
+         чтобы у приложения было как минимум одно из «динамических» прав этого типа
+         (BLUETOOTH_CONNECT / CHANGE_NETWORK_STATE / USB_DEVICE / USB_ACCESSORY ...).
+         Без них startForeground() бросает SecurityException даже при наличии
+         FOREGROUND_SERVICE_CONNECTED_DEVICE. CHANGE_NETWORK_STATE — normal-право
+         (выдаётся автоматически), поэтому Wi-Fi-канал работает без запросов. -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+
     <!-- USB-подключение (AOA): разрешение на доступ к аксессуару выдаётся пользователем -->
     <uses-feature android:name="android.hardware.usb.accessory" android:required="false" />
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />

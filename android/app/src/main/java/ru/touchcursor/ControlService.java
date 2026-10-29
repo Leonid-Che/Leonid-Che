@@ -49,7 +49,66 @@ public class ControlService extends Service {
         speedLevel = getSharedPreferences("touchcursor", MODE_PRIVATE)
                 .getInt("speed_level", SPEED_DEFAULT);
         createChannel();
-        startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_idle)));
+        startForegroundSafely();
+    }
+
+    /**
+     * Запуск foreground-состояния с защитой от SecurityException.
+     *
+     * С Android 12 (API 31) для сервиса типа connectedDevice система требует, чтобы
+     * приложению было выдано хотя бы одно динамическое право этого списка:
+     * BLUETOOTH_ADVERTISE/CONNECT/SCAN, CHANGE_NETWORK_STATE/WIFI_STATE, NFC и т.п.
+     * Если права ещё не выданы, startForeground() бросает SecurityException и процесс
+     * падает — поэтому вызов обёрнут в try/catch, а при отказе уведомляется активити
+     * (оно запросит недостающие права).
+     */
+    private void startForegroundSafely() {
+        Notification notification = buildNotification(getString(R.string.notification_idle));
+        try {
+            if (Build.VERSION.SDK_INT >= 34) {
+                // Явная передача типа FGS (Android 14 требует совпадения с манифестом)
+                startForeground(NOTIFICATION_ID, notification,
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
+            }
+        } catch (SecurityException e) {
+            // Права для connectedDevice-FGS ещё не выданы — просим их через MainActivity,
+            // после чего повторим попытку. Сервис при этом не должен ронять приложение.
+            requestFgsPermissionsAndRetry();
+        } catch (Exception e) {
+            // Любые прочие сбои (например, на некоторых прошивках без POST_NOTIFICATIONS)
+            requestFgsPermissionsAndRetry();
+        }
+    }
+
+    private volatile boolean fgsRetrying = false;
+
+    private void requestFgsPermissionsAndRetry() {
+        notifyActivityPermissionDenied();
+        if (!fgsRetrying) {
+            fgsRetrying = true;
+            // Повторная попытка через 3 секунды — за это время пользователь,
+            // вероятно, подтвердит запрос прав в диалоге.
+            new android.os.Handler(getMainLooper()).postDelayed(() -> {
+                fgsRetrying = false;
+                try {
+                    startForegroundSafely();
+                } catch (Exception ignored) {
+                }
+            }, 3000);
+        }
+    }
+
+    /** Дёргаем MainActivity.onFgsPermissionDenied(), если она жива и на переднем плане. */
+    private void notifyActivityPermissionDenied() {
+        try {
+            Intent i = new Intent(this, MainActivity.class);
+            i.putExtra(MainActivity.EXTRA_FGS_PERMISSION_DENIED, true);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            startActivity(i);
+        } catch (Exception ignored) {
+        }
     }
 
     @Override

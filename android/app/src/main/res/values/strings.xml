@@ -41,6 +41,7 @@
 
     <string name="channel_name">Управление курсором</string>
     <string name="notification_idle">TouchCursor: управление выключено</string>
+    <string name="fgs_permission_denied">Нет прав для фонового сервиса. Подтвердите запрос разрешений (Bluetooth/уведомления) — приложение продолжит работу после выдачи.</string>
     <string name="notification_connecting">TouchCursor: установка соединения…</string>
     <string name="notification_connected">Управление включено, канал: %1$s</string>
     <string name="notification_reconnecting">Переподключение: %1$s</string>
