@@ -127,29 +127,26 @@ public class BtRfcommTransport implements Transport {
     }
 
     /**
-     * Эмуляция недоступного публично BluetoothDevice.isConnected().
-     * Сначала пробуем публичный API BluetoothManager.getConnectedDevices(GATT),
-     * затем — рефлексивный вызов скрытого метода isConnected(); при любом сбое
-     * возвращаем false (дальше проверяется состояние сопряжения).
+     * Публичная эмуляция недоступного BluetoothDevice.isConnected():
+     * проверяем, есть ли устройство среди подключённых через BluetoothManager
+     * (профили GATT и HEADSET). Скрытый метод isConnected() не вызывается —
+     * он отсутствует в публичном SDK. При отказе считаем, что соединения нет
+     * (дальше в любом случае проверяется состояние сопряжения).
      */
     @SuppressLint("MissingPermission")
     private boolean isDeviceConnected(BluetoothManager manager, BluetoothDevice device) {
-        if (manager != null) {
+        if (manager == null || device == null) return false;
+        int[] profiles = { BluetoothProfile.GATT, BluetoothProfile.HEADSET };
+        for (int profile : profiles) {
             try {
-                for (BluetoothDevice d : manager.getConnectedDevices(BluetoothProfile.GATT)) {
+                for (BluetoothDevice d : manager.getConnectedDevices(profile)) {
                     if (d != null && device.getAddress().equals(d.getAddress())) return true;
                 }
-            } catch (SecurityException ignored) {
             } catch (Exception ignored) {
+                // Нет разрешения / профиль недоступен на этом стеке — идём дальше.
             }
         }
-        try {
-            java.lang.reflect.Method m = BluetoothDevice.class.getMethod("isConnected");
-            Object r = m.invoke(device);
-            return r instanceof Boolean && (Boolean) r;
-        } catch (Throwable ignored) {
-            return false;
-        }
+        return false;
     }
 
     @SuppressLint("MissingPermission")
