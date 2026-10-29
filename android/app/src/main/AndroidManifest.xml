@@ -5,6 +5,12 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- Foreground-сервис управления (обязательно с Android 9/API 28,
+         иначе startForeground() бросает SecurityException и приложение падает) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Тип сервиса connectedDevice: дополнительно требуется с Android 14/API 34 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
     <!-- Уведомление foreground-сервиса (обязательно с Android 13) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
