@@ -60,38 +60,62 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="4dp"
-        android:weightSum="7">
+        android:weightSum="5">
 
         <Button
             android:id="@+id/btn_conn_wifi"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
             android:text="@string/btn_conn_wifi" />
 
         <Button
             android:id="@+id/btn_conn_usb"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
             android:text="@string/btn_conn_usb" />
 
         <Button
             android:id="@+id/btn_conn_bt"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
             android:text="@string/btn_conn_bt" />
 
         <Button
             android:id="@+id/btn_speed_down"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
             android:text="@string/btn_speed_down" />
 
         <TextView
@@ -107,17 +131,29 @@
         <Button
             android:id="@+id/btn_speed_up"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
             android:text="@string/btn_speed_up" />
 
         <Button
             android:id="@+id/btn_help"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
             android:text="@string/btn_help" />
     </LinearLayout>
 
@@ -127,71 +163,76 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="4dp"
-        android:weightSum="7">
-
-        <!-- Индикация нажатий ЛКМ/ПКМ (подсвечиваются при Громкость+/Громкость−) -->
-        <TextView
-            android:id="@+id/ind_lmb"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginEnd="3dp"
-            android:gravity="center"
-            android:background="@drawable/indicator_bg"
-            android:textColor="@color/text_light"
-            android:textSize="11sp"
-            android:text="@string/ind_lmb" />
-
-        <TextView
-            android:id="@+id/ind_rmb"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginEnd="3dp"
-            android:gravity="center"
-            android:background="@drawable/indicator_bg"
-            android:textColor="@color/text_light"
-            android:textSize="11sp"
-            android:text="@string/ind_rmb" />
+        android:weightSum="5">
 
         <Button
             android:id="@+id/btn_left_click"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
             android:text="@string/btn_lclick" />
 
         <Button
             android:id="@+id/btn_left_dblclick"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
             android:text="@string/btn_ldouble" />
 
         <Button
             android:id="@+id/btn_right_click"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
             android:text="@string/btn_rclick" />
 
         <Button
             android:id="@+id/btn_scroll_up"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
             android:text="@string/btn_scroll_up" />
 
         <Button
             android:id="@+id/btn_scroll_down"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
+            android:layout_marginStart="2dp"
+            android:layout_marginEnd="2dp"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
             android:text="@string/btn_scroll_down" />
     </LinearLayout>
 
