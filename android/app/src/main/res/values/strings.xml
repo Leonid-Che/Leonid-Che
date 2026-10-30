@@ -17,6 +17,9 @@
     <string name="touchpad_hint">Выключено. Нажмите кнопку внизу, чтобы включить управление.</string>
 
     <string name="btn_lclick">ЛКМ</string>
+    <!-- Индикаторы нажатия кнопок мыши (подсветка при Громкость+/Громкость−) -->
+    <string name="ind_lmb">ЛКМ·</string>
+    <string name="ind_rmb">ПКМ·</string>
     <string name="btn_ldouble">ЛКМ×2</string>
     <string name="btn_rclick">ПКМ</string>
     <string name="btn_scroll_up">▲</string>

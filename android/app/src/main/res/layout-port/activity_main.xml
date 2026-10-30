@@ -127,7 +127,32 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="3dp"
-        android:weightSum="5">
+        android:weightSum="7">
+
+        <!-- Индикация нажатий ЛКМ/ПКМ (подсвечиваются при Громкость+/Громкость−) -->
+        <TextView
+            android:id="@+id/ind_lmb"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginEnd="3dp"
+            android:gravity="center"
+            android:background="@drawable/indicator_bg"
+            android:textColor="@color/text_light"
+            android:textSize="10sp"
+            android:text="@string/ind_lmb" />
+
+        <TextView
+            android:id="@+id/ind_rmb"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginEnd="3dp"
+            android:gravity="center"
+            android:background="@drawable/indicator_bg"
+            android:textColor="@color/text_light"
+            android:textSize="10sp"
+            android:text="@string/ind_rmb" />
 
         <Button
             android:id="@+id/btn_left_click"

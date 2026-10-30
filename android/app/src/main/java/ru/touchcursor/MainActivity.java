@@ -56,6 +56,10 @@ public class MainActivity extends AppCompatActivity {
     private EditText ipEdit;
     private Button btnUsb, btnBt;
     private TextView speedText;
+    // Индикаторы нажатия ЛКМ/ПКМ: подсвечиваются одним акцентным цветом
+    // при одиночном/двойном клике Громкость+ и при клике/удержании Громкость−.
+    private android.widget.TextView indLmb, indRmb;
+    private static final long INDICATOR_FLASH_MS = 180; // длительность подсветки клика
     private android.os.Handler uiHandler = null;
 
     private int connMode = PcClient.MODE_WIFI;
@@ -101,6 +105,8 @@ public class MainActivity extends AppCompatActivity {
         btnUsb = findViewById(R.id.btn_conn_usb);
         btnBt = findViewById(R.id.btn_conn_bt);
         speedText = findViewById(R.id.tv_speed);
+        indLmb = findViewById(R.id.ind_lmb);
+        indRmb = findViewById(R.id.ind_rmb);
 
         // Восстановить сохранённые настройки
         var prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
@@ -185,13 +191,13 @@ public class MainActivity extends AppCompatActivity {
 
         // Вспомогательные экранные кнопки (дублируют кнопки громкости)
         findViewById(R.id.btn_left_click).setOnClickListener(v -> {
-            if (bound && svc != null) svc.sendClick("left", false);
+            if (bound && svc != null) { svc.sendClick("left", false); flashLmb(); }
         });
         findViewById(R.id.btn_left_dblclick).setOnClickListener(v -> {
-            if (bound && svc != null) svc.sendClick("left", true);
+            if (bound && svc != null) { svc.sendClick("left", true); flashLmb(); }
         });
         findViewById(R.id.btn_right_click).setOnClickListener(v -> {
-            if (bound && svc != null) svc.sendClick("right", false);
+            if (bound && svc != null) { svc.sendClick("right", false); flashRmbOnce(); }
         });
         findViewById(R.id.btn_scroll_up).setOnClickListener(v -> {
             if (bound && svc != null) svc.sendScroll(-1);
@@ -434,11 +440,13 @@ public class MainActivity extends AppCompatActivity {
                 if (now - lastVolUpTime <= DOUBLE_CLICK_TIMEOUT_MS) {
                     // Второе нажатие в пределах окна двойного клика -> double click
                     svc.sendClick("left", true);
+                    flashLmb();              // индикация двойного клика ЛКМ
                     lastVolUpTime = 0;      // сброс, чтобы тройное нажатие не стало снова "double"
                 } else {
                     // Одиночное: отправляем сразу (отзывчивее, чем ждать таймаут).
                     // Если следом придёт второе - сервер получит ещё и double.
                     svc.sendClick("left", false);
+                    flashLmb();              // индикация одиночного клика ЛКМ
                     lastVolUpTime = now;
                 }
             } else if (action == KeyEvent.ACTION_UP) {
@@ -449,6 +457,7 @@ public class MainActivity extends AppCompatActivity {
                 if (repeatCount > 0) return;
                 volDownPressTime = System.currentTimeMillis();
                 volDownHeld = false;
+                lightRmb(true);  // подсветка ПКМ включается сразу при нажатии Громкость−
                 checkHold(); // запланировать переход в "удержание ПКМ"
             } else if (action == KeyEvent.ACTION_UP) {
                 if (uiHandler != null) uiHandler.removeCallbacks(holdChecker);
@@ -462,7 +471,42 @@ public class MainActivity extends AppCompatActivity {
                     // короткое нажатие -> одиночный клик ПКМ
                     svc.sendClick("right", false);
                 }
+                lightRmb(false); // подсветка ПКМ гаснет при отпускании Громкость−
             }
+        }
+    }
+
+    // =====================================================================
+    //  Индикация нажатия ЛКМ / ПКМ (одинаковый акцентный цвет для обеих)
+    // =====================================================================
+
+    /** Кратковременная подсветка индикатора ЛКМ (клик / двойной клик). */
+    private void flashLmb() {
+        if (indLmb == null || uiHandler == null) return;
+        indLmb.setBackgroundColor(getColor(R.color.indicator_lit));
+        uiHandler.postDelayed(() -> {
+            if (indLmb != null) indLmb.setBackgroundResource(R.drawable.indicator_bg);
+        }, INDICATOR_FLASH_MS);
+    }
+
+    /**
+     * Управление подсветкой индикатора ПКМ: горит всё время, пока удерживается
+     * Громкость− (короткий клик — короткая вспышка, удержание-drag — непрерывно).
+     */
+    private void lightRmb(boolean on) {
+        if (indRmb == null) return;
+        if (on) {
+            indRmb.setBackgroundColor(getColor(R.color.indicator_lit));
+        } else {
+            indRmb.setBackgroundResource(R.drawable.indicator_bg);
+        }
+    }
+
+    /** Короткая подсветка индикатора ПКМ при клике экранный кнопкой «ПКМ». */
+    private void flashRmbOnce() {
+        lightRmb(true);
+        if (uiHandler != null) {
+            uiHandler.postDelayed(() -> lightRmb(false), INDICATOR_FLASH_MS);
         }
     }
 
@@ -500,6 +544,10 @@ public class MainActivity extends AppCompatActivity {
         toggleButton.setText(on ? R.string.control_on : R.string.control_off);
         toggleButton.setBackgroundColor(getColor(on ? R.color.accent_green : R.color.gray_button));
         touchPad.setActive(on);
+        if (!on) { // при выключении управления гасим обе подсветки
+            lightRmb(false);
+            if (indLmb != null) indLmb.setBackgroundResource(R.drawable.indicator_bg);
+        }
         updateStatusText();
     }
 
