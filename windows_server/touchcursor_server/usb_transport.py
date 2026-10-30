@@ -9,10 +9,45 @@
 или драйвер WinUSB из комплекта Android USB Driver).
 """
 
+import importlib
+import sys
 import time
 
-import usb.core
-import usb.util
+
+def _import_usb():
+    """Импортирует pyusb с понятной диагностикой.
+
+    Вызывается лениво (из serve_usb), поэтому Wi-Fi-версия EXE работает без pyusb.
+    Если модуль не найден — печатает подсказку и завершает процесс с кодом 1,
+    чтобы пользователь EXE не видел «голый» ModuleNotFoundError.
+    """
+    try:
+        return importlib.import_module("usb.core"), importlib.import_module("usb.util")
+    except ImportError:
+        if getattr(sys, "frozen", False):
+            msg = (
+                "Не найден модуль 'usb' (pyusb).\n\n"
+                "EXE собран скриптом build_exe.bat (Wi-Fi-версия), в который pyusb "
+                "не включён.\nДля канала USB соберите TouchCursorServer-USB.exe "
+                "скриптом build_exe_usb.bat\nили запустите сервер из Python:\n\n"
+                "  pip install pyusb\n"
+                "  python -m touchcursor_server --usb"
+            )
+        else:
+            msg = (
+                "Не найден модуль 'usb' (pyusb). Установите его командой:\n\n"
+                "  pip install pyusb\n\n"
+                "(виртуальное окружение должно быть активировано)"
+            )
+        print(msg, file=sys.stderr)
+        try:  # для frozen-сборки дополнительно покажем окно сообщения
+            import ctypes
+
+            ctypes.windll.user32.MessageBoxW(None, msg.replace("\n\n", "\n"),
+                                             "TouchCursor Server: нет pyusb", 0x10)
+        except Exception:
+            pass
+        sys.exit(1)
 
 # Совпадают с UsbTransport.java на стороне Android.
 VENDOR_ID = 0x18D1
@@ -23,9 +58,10 @@ EP_IN_MASK = 0x80  # бит направления в адресе эндпои�
 
 def find_accessory_device(timeout_s: float = 0.0):
     """Ищет AOA-аксессуар TouchCursor; при timeout_s>0 ждёт его появления."""
+    usb_core, _ = _import_usb()
     deadline = time.time() + timeout_s
     while True:
-        dev = usb.core.find(idVendor=VENDOR_ID, idProduct=PRODUCT_ID)
+        dev = usb_core.find(idVendor=VENDOR_ID, idProduct=PRODUCT_ID)
         if dev is not None:
             return dev
         if time.time() >= deadline:
@@ -41,20 +77,21 @@ class AoaChannel:
     """
 
     def __init__(self, dev):
+        _, usb_util = _import_usb()
         self.dev = dev
         dev.set_configuration()
         cfg = dev.get_active_configuration()
         intf = cfg[(0, 0)]
 
-        self.ep_out = usb.util.find_descriptor(
+        self.ep_out = usb_util.find_descriptor(
             intf,
-            custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress)
-            == usb.util.ENDPOINT_OUT,
+            custom_match=lambda e: usb_util.endpoint_direction(e.bEndpointAddress)
+            == usb_util.ENDPOINT_OUT,
         )
-        self.ep_in = usb.util.find_descriptor(
+        self.ep_in = usb_util.find_descriptor(
             intf,
-            custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress)
-            == usb.util.ENDPOINT_IN,
+            custom_match=lambda e: usb_util.endpoint_direction(e.bEndpointAddress)
+            == usb_util.ENDPOINT_IN,
         )
         if self.ep_out is None or self.ep_in is None:
             raise RuntimeError("Bulk-эндпоинты AOA не найдены на устройстве.")
@@ -91,6 +128,7 @@ class AoaChannel:
     def close(self):
         self._closed = True
         try:
-            usb.util.dispose_resources(self.dev)
+            _, usb_util = _import_usb()
+            usb_util.dispose_resources(self.dev)
         except Exception:
             pass
