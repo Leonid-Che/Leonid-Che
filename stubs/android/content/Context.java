@@ -1,7 +1,6 @@
 package android.content;
 public class Context {
     public static final String BLUETOOTH_SERVICE = "bluetooth";
-    public static final String USB_SERVICE = "usb";
     public Object getSystemService(String name) { return null; }
     public void startActivity(Intent i) {}
     public static final int MODE_PRIVATE = 0;

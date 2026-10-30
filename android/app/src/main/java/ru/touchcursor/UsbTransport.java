@@ -100,7 +100,7 @@ public class UsbTransport implements Transport {
     }
 
     /** Классическое AOA-переключение: control transfer'ы на эндпоинт устройства. */
-    private boolean switchToAccessory(UsbDevice device) throws IOException {
+    private boolean switchToAccessory(UsbDevice device) {
         UsbDeviceConnection conn = manager.openDevice(device);
         if (conn == null) return false;
         try {
@@ -119,8 +119,7 @@ public class UsbTransport implements Transport {
     }
 
     private void sendString(UsbDeviceConnection conn, int index, String value) throws IOException {
-        // StandardCharsets.UTF_8 — без checked-исключения UnsupportedEncodingException
-        byte[] payload = (value + "\0").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] payload = (value + "\0").getBytes("UTF-8");
         int r = conn.controlTransfer(0x40, SEND_STRING, 0, index, payload, payload.length, 2000);
         if (r < 0) throw new IOException("AOA SEND_STRING failed");
     }
