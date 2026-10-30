@@ -1,4 +1,0 @@
-pyinstaller>=6.0
-# опционально, для соответствующих каналов:
-# pyusb>=1.2      # USB/AOA
-# pyserial>=3.5   # Bluetooth SPP
