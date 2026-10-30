@@ -3,8 +3,6 @@ package ru.touchcursor;
 import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothManager;
-import android.bluetooth.BluetoothProfile;
 import android.bluetooth.BluetoothSocket;
 import android.content.Context;
 import android.content.Intent;
@@ -39,10 +37,7 @@ public class BtRfcommTransport implements Transport {
     @SuppressLint("MissingPermission") // BLUETOOTH_CONNECT запрашивается в MainActivity до включения BT-режима
     @Override
     public void connect() throws IOException {
-        // BluetoothAdapter.getDefaultAdapter() с API 31 помечен как deprecated —
-        // получаем адаптер через системный сервис BluetoothManager.
-        BluetoothManager manager = (BluetoothManager) ctx.getSystemService(Context.BLUETOOTH_SERVICE);
-        BluetoothAdapter adapter = (manager != null) ? manager.getAdapter() : null;
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         if (adapter == null) throw new IOException("На устройстве нет Bluetooth-адаптера.");
         if (!adapter.isEnabled()) {
             // Предложим включить; цикл переподключения повторит попытку позже.
@@ -60,11 +55,7 @@ public class BtRfcommTransport implements Transport {
             throw new IOException("Компьютер не найден среди сопряжённых устройств. "
                     + "Сопрягите телефон с Bluetooth-адаптером ПК.");
         }
-        // BluetoothDevice.isConnected() — скрытый (@hide) API, недоступный при обычной
-        // компиляции. Публичная проверка «уже ли есть соединение» делается через
-        // BluetoothManager.getConnectedDevices(GATT); при отказе рефлексии считаем,
-        // что соединения нет (сопряжение всё равно проверяется ниже).
-        if (!isDeviceConnected(manager, device) && !ensureBonded(device)) {
+        if (!device.isConnected() && !ensureBonded(device)) {
             Intent pair = new Intent(Settings.ACTION_BLUETOOTH_SETTINGS);
             pair.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             try {
@@ -123,32 +114,6 @@ public class BtRfcommTransport implements Transport {
             return d.getName();
         } catch (SecurityException e) {
             return null;
-        }
-    }
-
-    /**
-     * Эмуляция недоступного публично BluetoothDevice.isConnected().
-     * Сначала пробуем публичный API BluetoothManager.getConnectedDevices(GATT),
-     * затем — рефлексивный вызов скрытого метода isConnected(); при любом сбое
-     * возвращаем false (дальше проверяется состояние сопряжения).
-     */
-    @SuppressLint("MissingPermission")
-    private boolean isDeviceConnected(BluetoothManager manager, BluetoothDevice device) {
-        if (manager != null) {
-            try {
-                for (BluetoothDevice d : manager.getConnectedDevices(BluetoothProfile.GATT)) {
-                    if (d != null && device.getAddress().equals(d.getAddress())) return true;
-                }
-            } catch (SecurityException ignored) {
-            } catch (Exception ignored) {
-            }
-        }
-        try {
-            java.lang.reflect.Method m = BluetoothDevice.class.getMethod("isConnected");
-            Object r = m.invoke(device);
-            return r instanceof Boolean && (Boolean) r;
-        } catch (Throwable ignored) {
-            return false;
         }
     }
 
