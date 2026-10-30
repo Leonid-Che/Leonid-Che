@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/root_layout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_dark"
+    android:orientation="vertical">
+
+    <!-- Верхняя панель: режим подключения, адрес ПК и статус -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="3dp"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/ip_label"
+            android:textColor="@color/text_light"
+            android:textSize="12sp" />
+
+        <EditText
+            android:id="@+id/et_ip"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:hint="@string/ip_hint"
+            android:inputType="text"
+            android:digits="0123456789."
+            android:textColor="@color/text_light"
+            android:textColorHint="@color/text_dim"
+            android:textSize="14sp"
+            android:maxLines="1"
+            android:importantForAutofill="no" />
+
+        <TextView
+            android:id="@+id/tv_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/status_idle"
+            android:textColor="@color/text_dim"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <!-- Тачпад: основная зона управления курсором -->
+    <ru.touchcursor.TouchPadView
+        android:id="@+id/touch_pad"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- Нижняя панель 1: кнопки канала подключения (USB / Bluetooth) и скорости курсора -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="3dp"
+        android:weightSum="7">
+
+        <Button
+            android:id="@+id/btn_conn_wifi"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="10sp"
+            android:text="@string/btn_conn_wifi" />
+
+        <Button
+            android:id="@+id/btn_conn_usb"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="10sp"
+            android:text="@string/btn_conn_usb" />
+
+        <Button
+            android:id="@+id/btn_conn_bt"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="10sp"
+            android:text="@string/btn_conn_bt" />
+
+        <Button
+            android:id="@+id/btn_speed_down"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="10sp"
+            android:text="@string/btn_speed_down" />
+
+        <TextView
+            android:id="@+id/tv_speed"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:textColor="@color/text_light"
+            android:textSize="12sp"
+            android:text="@string/speed_default_label" />
+
+        <Button
+            android:id="@+id/btn_speed_up"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="10sp"
+            android:text="@string/btn_speed_up" />
+
+        <Button
+            android:id="@+id/btn_help"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="10sp"
+            android:text="@string/btn_help" />
+    </LinearLayout>
+
+    <!-- Нижняя панель 2: вспомогательные кнопки мыши -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="3dp"
+        android:weightSum="5">
+
+        <Button
+            android:id="@+id/btn_left_click"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="10sp"
+            android:text="@string/btn_lclick" />
+
+        <Button
+            android:id="@+id/btn_left_dblclick"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="10sp"
+            android:text="@string/btn_ldouble" />
+
+        <Button
+            android:id="@+id/btn_right_click"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="10sp"
+            android:text="@string/btn_rclick" />
+
+        <Button
+            android:id="@+id/btn_scroll_up"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="10sp"
+            android:text="@string/btn_scroll_up" />
+
+        <Button
+            android:id="@+id/btn_scroll_down"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="10sp"
+            android:text="@string/btn_scroll_down" />
+    </LinearLayout>
+
+    <!-- Служебная кнопка активации управления (вкл/выкл) внизу экрана -->
+    <Button
+        android:id="@+id/btn_toggle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="6dp"
+        android:padding="8dp"
+        android:textAllCaps="true"
+        android:textColor="@color/text_light"
+        android:background="@color/gray_button"
+        android:text="@string/control_off" />
+
+</LinearLayout>
