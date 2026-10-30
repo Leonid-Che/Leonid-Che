@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Фильтр USB-устройств: AOA-аксессуар TouchCursor, который Windows-ПК
-     создаёт после переключения смартфона в accessory-режим. -->
-<resources>
-    <usb-device vendor-id="6353" product-id="11632" /> <!-- 0x18D1 / 0x2D70 -->
-</resources>

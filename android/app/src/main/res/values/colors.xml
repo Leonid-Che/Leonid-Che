@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <color name="bg_dark">#0F141A</color>
-    <color name="accent_green">#2E7D32</color>
-    <color name="gray_button">#424242</color>
-    <color name="text_light">#ECEFF1</color>
-    <color name="text_dim">#90A4AE</color>
-</resources>
