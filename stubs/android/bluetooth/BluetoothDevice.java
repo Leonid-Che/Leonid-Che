@@ -4,7 +4,6 @@ public class BluetoothDevice {
     public String getName() { return null; }
     public String getAddress() { return null; }
     public int getBondState() { return BOND_NONE; }
-    public boolean isConnected() { return false; }
     public BluetoothSocket createRfcommSocketToServiceRecord(java.util.UUID uuid) throws java.io.IOException { return null; }
     public BluetoothSocket createInsecureRfcommSocketToServiceRecord(java.util.UUID uuid) throws java.io.IOException { return null; }
 }

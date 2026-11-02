@@ -65,7 +65,9 @@ public class TouchPadView extends View {
         canvas.drawRect(0, 0, w, h, bgPaint);
 
         if (!active) {
-            canvas.drawText(getString(R.string.touchpad_hint), w / 2f, h / 2f, textPaint);
+            // У View нет собственного метода getString(int) — берём его из контекста
+            String hint = getContext().getString(R.string.touchpad_hint);
+            canvas.drawText(hint, w / 2f, h / 2f, textPaint);
             return;
         }
 
