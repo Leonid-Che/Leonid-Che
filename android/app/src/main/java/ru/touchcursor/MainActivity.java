@@ -42,6 +42,9 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_MODE = "conn_mode";       // 0=wifi, 1=usb, 2=bt
     private static final String KEY_BT_MAC = "bt_mac";        // адрес адаптера ПК ("" = авто)
 
+    /** Экстра: сервис не смог запустить FGS из-за отсутствующих прав. */
+    public static final String EXTRA_FGS_PERMISSION_DENIED = "fgs_permission_denied";
+
     /** Интервал, в пределах которого второе нажатие VolumeUp считается двойным кликом. */
     private static final long DOUBLE_CLICK_TIMEOUT_MS = 400;
     /** Время удержания VolumeDown, после которого начинается "удержание ПКМ". */
@@ -53,6 +56,10 @@ public class MainActivity extends AppCompatActivity {
     private EditText ipEdit;
     private Button btnUsb, btnBt;
     private TextView speedText;
+    // Индикаторы нажатия ЛКМ/ПКМ: подсвечиваются одним акцентным цветом
+    // при одиночном/двойном клике Громкость+ и при клике/удержании Громкость−.
+    private android.widget.TextView indLmb, indRmb;
+    private static final long INDICATOR_FLASH_MS = 180; // длительность подсветки клика
     private android.os.Handler uiHandler = null;
 
     private int connMode = PcClient.MODE_WIFI;
@@ -98,6 +105,8 @@ public class MainActivity extends AppCompatActivity {
         btnUsb = findViewById(R.id.btn_conn_usb);
         btnBt = findViewById(R.id.btn_conn_bt);
         speedText = findViewById(R.id.tv_speed);
+        indLmb = findViewById(R.id.ind_lmb);
+        indRmb = findViewById(R.id.ind_rmb);
 
         // Восстановить сохранённые настройки
         var prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
@@ -182,13 +191,13 @@ public class MainActivity extends AppCompatActivity {
 
         // Вспомогательные экранные кнопки (дублируют кнопки громкости)
         findViewById(R.id.btn_left_click).setOnClickListener(v -> {
-            if (bound && svc != null) svc.sendClick("left", false);
+            if (bound && svc != null) { svc.sendClick("left", false); flashLmb(); }
         });
         findViewById(R.id.btn_left_dblclick).setOnClickListener(v -> {
-            if (bound && svc != null) svc.sendClick("left", true);
+            if (bound && svc != null) { svc.sendClick("left", true); flashLmb(); }
         });
         findViewById(R.id.btn_right_click).setOnClickListener(v -> {
-            if (bound && svc != null) svc.sendClick("right", false);
+            if (bound && svc != null) { svc.sendClick("right", false); flashRmbOnce(); }
         });
         findViewById(R.id.btn_scroll_up).setOnClickListener(v -> {
             if (bound && svc != null) svc.sendScroll(-1);
@@ -205,6 +214,27 @@ public class MainActivity extends AppCompatActivity {
 
         bindService(new Intent(this, ControlService.class), conn, Context.BIND_AUTO_CREATE);
         startForegroundServiceCompat(new Intent(this, ControlService.class));
+
+        // Динамические права, необходимые для foreground-сервиса типа connectedDevice
+        // (Android 12+) и уведомления сервиса (Android 13+). Запрашиваем сразу при старте.
+        requestRuntimePermissionsIfNeeded();
+
+        // Если сервис уже сообщил об отказе startForeground() (EXTRA_FGS_PERMISSION_DENIED)
+        handleFgsDeniedIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleFgsDeniedIntent(intent);
+    }
+
+    private void handleFgsDeniedIntent(Intent intent) {
+        if (intent != null && intent.getBooleanExtra(EXTRA_FGS_PERMISSION_DENIED, false)) {
+            intent.removeExtra(EXTRA_FGS_PERMISSION_DENIED);
+            onFgsPermissionDenied();
+        }
     }
 
     private static double clamp01(double v) {
@@ -243,6 +273,66 @@ public class MainActivity extends AppCompatActivity {
 
     private void highlight(Button b, boolean selected) {
         b.setBackgroundColor(getColor(selected ? R.color.accent_green : R.color.gray_button));
+    }
+
+    /**
+     * Вызывается из ControlService, если startForeground() отклонён системой
+     * (SecurityException: не выдано динамическое право для типа connectedDevice).
+     * Запрашивает недостающие права и обновляет интерфейс.
+     */
+    public void onFgsPermissionDenied() {
+        runOnUiThread(() -> {
+            Toast.makeText(this, R.string.fgs_permission_denied, Toast.LENGTH_LONG).show();
+            requestRuntimePermissionsIfNeeded();
+            updateToggleUi(false);
+            updateStatusText();
+        });
+    }
+
+    /** Период обновления состояния после выдачи прав. */
+    private static final int REQ_RUNTIME_PERMISSIONS = 101;
+
+    /**
+     * С Android 12 (API 31) foreground-сервис типа connectedDevice требует, чтобы у
+     * приложения было выдано хотя бы одно динамическое право этого типа
+     * (BLUETOOTH_CONNECT и т.п.). С Android 13 (API 33) уведомление сервиса требует
+     * POST_NOTIFICATIONS. Запрашиваем их при старте — иначе startForeground() может
+     * бросить SecurityException.
+     */
+    private void requestRuntimePermissionsIfNeeded() {
+        java.util.List<String> needed = new java.util.ArrayList<>();
+        if (Build.VERSION.SDK_INT >= 31
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.BLUETOOTH_CONNECT);
+        }
+        if (Build.VERSION.SDK_INT >= 33
+                && ContextCompat.checkSelfPermission(this, "android.permission.POST_NOTIFICATIONS")
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add("android.permission.POST_NOTIFICATIONS");
+        }
+        if (!needed.isEmpty()) {
+            ActivityCompat.requestPermissions(this,
+                    needed.toArray(new String[0]), REQ_RUNTIME_PERMISSIONS);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                           int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        // После выдачи (или отказа) прав переподключаемся, если управление активно,
+        // и обновляем статус.
+        if (requestCode == REQ_RUNTIME_PERMISSIONS) {
+            if (bound && svc != null && svc.isControlling()) {
+                var prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+                svc.stopControlling();
+                svc.startControlling(connMode, prefs.getString(KEY_IP, ""),
+                        prefs.getInt(KEY_PORT, ControlService.DEFAULT_PORT),
+                        prefs.getString(KEY_BT_MAC, ""), Build.MODEL);
+            }
+            updateStatusText();
+        }
     }
 
     /** Динамическое право BLUETOOTH_CONNECT нужно на Android 12+ перед BT-подключением. */
@@ -350,11 +440,13 @@ public class MainActivity extends AppCompatActivity {
                 if (now - lastVolUpTime <= DOUBLE_CLICK_TIMEOUT_MS) {
                     // Второе нажатие в пределах окна двойного клика -> double click
                     svc.sendClick("left", true);
+                    flashLmb();              // индикация двойного клика ЛКМ
                     lastVolUpTime = 0;      // сброс, чтобы тройное нажатие не стало снова "double"
                 } else {
                     // Одиночное: отправляем сразу (отзывчивее, чем ждать таймаут).
                     // Если следом придёт второе - сервер получит ещё и double.
                     svc.sendClick("left", false);
+                    flashLmb();              // индикация одиночного клика ЛКМ
                     lastVolUpTime = now;
                 }
             } else if (action == KeyEvent.ACTION_UP) {
@@ -365,6 +457,7 @@ public class MainActivity extends AppCompatActivity {
                 if (repeatCount > 0) return;
                 volDownPressTime = System.currentTimeMillis();
                 volDownHeld = false;
+                lightRmb(true);  // подсветка ПКМ включается сразу при нажатии Громкость−
                 checkHold(); // запланировать переход в "удержание ПКМ"
             } else if (action == KeyEvent.ACTION_UP) {
                 if (uiHandler != null) uiHandler.removeCallbacks(holdChecker);
@@ -378,7 +471,42 @@ public class MainActivity extends AppCompatActivity {
                     // короткое нажатие -> одиночный клик ПКМ
                     svc.sendClick("right", false);
                 }
+                lightRmb(false); // подсветка ПКМ гаснет при отпускании Громкость−
             }
+        }
+    }
+
+    // =====================================================================
+    //  Индикация нажатия ЛКМ / ПКМ (одинаковый акцентный цвет для обеих)
+    // =====================================================================
+
+    /** Кратковременная подсветка индикатора ЛКМ (клик / двойной клик). */
+    private void flashLmb() {
+        if (indLmb == null || uiHandler == null) return;
+        indLmb.setBackgroundColor(getColor(R.color.indicator_lit));
+        uiHandler.postDelayed(() -> {
+            if (indLmb != null) indLmb.setBackgroundResource(R.drawable.indicator_bg);
+        }, INDICATOR_FLASH_MS);
+    }
+
+    /**
+     * Управление подсветкой индикатора ПКМ: горит всё время, пока удерживается
+     * Громкость− (короткий клик — короткая вспышка, удержание-drag — непрерывно).
+     */
+    private void lightRmb(boolean on) {
+        if (indRmb == null) return;
+        if (on) {
+            indRmb.setBackgroundColor(getColor(R.color.indicator_lit));
+        } else {
+            indRmb.setBackgroundResource(R.drawable.indicator_bg);
+        }
+    }
+
+    /** Короткая подсветка индикатора ПКМ при клике экранный кнопкой «ПКМ». */
+    private void flashRmbOnce() {
+        lightRmb(true);
+        if (uiHandler != null) {
+            uiHandler.postDelayed(() -> lightRmb(false), INDICATOR_FLASH_MS);
         }
     }
 
@@ -416,6 +544,10 @@ public class MainActivity extends AppCompatActivity {
         toggleButton.setText(on ? R.string.control_on : R.string.control_off);
         toggleButton.setBackgroundColor(getColor(on ? R.color.accent_green : R.color.gray_button));
         touchPad.setActive(on);
+        if (!on) { // при выключении управления гасим обе подсветки
+            lightRmb(false);
+            if (indLmb != null) indLmb.setBackgroundResource(R.drawable.indicator_bg);
+        }
         updateStatusText();
     }
 
