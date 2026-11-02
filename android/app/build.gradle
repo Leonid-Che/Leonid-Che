@@ -3,26 +3,26 @@ plugins {
 }
 
 android {
-    namespace 'ru.touchcursor'
-    compileSdk 34
+    namespace = 'ru.touchcursor'
+    compileSdk = 34
 
     defaultConfig {
-        applicationId "ru.touchcursor"
-        minSdk 29          // Android 10 и выше
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        applicationId = "ru.touchcursor"
+        minSdk = 29           // Android 10 и выше
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
     }
 
     buildTypes {
         release {
-            minifyEnabled false
+            minifyEnabled = false
         }
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 }
 
