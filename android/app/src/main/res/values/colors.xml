@@ -10,4 +10,12 @@
          тем же цветом, что и при обычном нажатие пальцем. -->
     <color name="button_idle">#37474F</color>
     <color name="button_lit">#4CAF50</color>
+
+    <!-- Совместимость: старые сборки/AAPT-кэши могут ещё ссылаться на
+         drawable indicator_bg.xml и цвета indicator_* (отдельные индикаторы
+         ЛКМ/ПКМ удалены в коммите 290884c). Оставлены как алиасы тех же
+         цветов, чтобы сборка не падала с "resource color/indicator_base
+         not found". -->
+    <color name="indicator_base">#37474F</color>
+    <color name="indicator_lit">#4CAF50</color>
 </resources>
