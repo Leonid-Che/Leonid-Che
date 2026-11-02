@@ -495,14 +495,14 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    /** Подсветка одной кнопки акцентным цветом (on/off). */
+    /**
+     * Подсветка кнопки: имитируем состояние "нажата" (setPressed). Фон кнопок —
+     * selector mouse_button_bg.xml, поэтому вид полностью такой же, как при
+     * реальном нажатии кнопки пальцем. Отдельных индикаторов на экране нет.
+     */
     private void litButton(Button b, boolean on) {
         if (b == null) return;
-        if (on) {
-            b.setBackgroundColor(getColor(R.color.button_lit));
-        } else {
-            b.setBackgroundResource(R.drawable.mouse_button_bg);
-        }
+        b.setPressed(on);
     }
 
     /** Кратковременная подсветка кнопки «ЛКМ» (одиночный клик Громкость+ или кнопкой). */
@@ -529,7 +529,7 @@ public class MainActivity extends AppCompatActivity {
         litButton(btnRightClick, on);
     }
 
-    /** Короткая подсветка кнопки «ПКМ» при клике экранный кнопкой «ПКМ». */
+    /** Короткая подсветка кнопки «ПКМ» при клике экранной кнопкой «ПКМ». */
     private void flashRmbOnce() {
         lightRmb(true);
         if (uiHandler != null) {

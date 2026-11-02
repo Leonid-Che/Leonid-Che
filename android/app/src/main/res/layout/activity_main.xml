@@ -177,6 +177,7 @@
             android:autoSizeTextType="none"
             android:includeFontPadding="false"
             android:textAllCaps="false"
+            android:background="@drawable/mouse_button_bg"
             android:text="@string/btn_lclick" />
 
         <Button
@@ -191,6 +192,7 @@
             android:autoSizeTextType="none"
             android:includeFontPadding="false"
             android:textAllCaps="false"
+            android:background="@drawable/mouse_button_bg"
             android:text="@string/btn_ldouble" />
 
         <Button
@@ -205,6 +207,7 @@
             android:autoSizeTextType="none"
             android:includeFontPadding="false"
             android:textAllCaps="false"
+            android:background="@drawable/mouse_button_bg"
             android:text="@string/btn_rclick" />
 
         <Button
