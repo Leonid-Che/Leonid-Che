@@ -56,9 +56,9 @@ public class MainActivity extends AppCompatActivity {
     private EditText ipEdit;
     private Button btnUsb, btnBt;
     private TextView speedText;
-    // Экранные кнопки мыши — сами служат индикацией: при нажатии Громкость+/Громкость−
-    // они подсвечиваются тем же цветом (button_lit), что и при нажатии пальцем.
-    private Button btnLeftClick, btnLeftDblClick, btnRightClick;
+    // Индикаторы нажатия ЛКМ/ПКМ: подсвечиваются одним акцентным цветом
+    // при одиночном/двойном клике Громкость+ и при клике/удержании Громкость−.
+    private android.widget.TextView indLmb, indRmb;
     private static final long INDICATOR_FLASH_MS = 180; // длительность подсветки клика
     private android.os.Handler uiHandler = null;
 
@@ -105,10 +105,8 @@ public class MainActivity extends AppCompatActivity {
         btnUsb = findViewById(R.id.btn_conn_usb);
         btnBt = findViewById(R.id.btn_conn_bt);
         speedText = findViewById(R.id.tv_speed);
-        btnLeftClick = findViewById(R.id.btn_left_click);
-        btnLeftDblClick = findViewById(R.id.btn_left_dblclick);
-        btnRightClick = findViewById(R.id.btn_right_click);
-        applyMouseButtonBackgrounds();
+        indLmb = findViewById(R.id.ind_lmb);
+        indRmb = findViewById(R.id.ind_rmb);
 
         // Восстановить сохранённые настройки
         var prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
@@ -191,16 +189,14 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Вспомогательные экранные кнопки (дублируют кнопки громкости).
-        // При нажатии Громкость+/Громкость− эти же кнопки подсвечиваются тем же
-        // цветом, что и при нажатии пальцем (см. flashLmb/flashLmbDouble/lightRmb).
-        btnLeftClick.setOnClickListener(v -> {
+        // Вспомогательные экранные кнопки (дублируют кнопки громкости)
+        findViewById(R.id.btn_left_click).setOnClickListener(v -> {
             if (bound && svc != null) { svc.sendClick("left", false); flashLmb(); }
         });
-        btnLeftDblClick.setOnClickListener(v -> {
-            if (bound && svc != null) { svc.sendClick("left", true); flashLmbDouble(); }
+        findViewById(R.id.btn_left_dblclick).setOnClickListener(v -> {
+            if (bound && svc != null) { svc.sendClick("left", true); flashLmb(); }
         });
-        btnRightClick.setOnClickListener(v -> {
+        findViewById(R.id.btn_right_click).setOnClickListener(v -> {
             if (bound && svc != null) { svc.sendClick("right", false); flashRmbOnce(); }
         });
         findViewById(R.id.btn_scroll_up).setOnClickListener(v -> {
@@ -445,7 +441,7 @@ public class MainActivity extends AppCompatActivity {
                 if (now - lastVolUpTime <= DOUBLE_CLICK_TIMEOUT_MS) {
                     // Второе нажатие в пределах окна двойного клика -> double click
                     svc.sendClick("left", true);
-                    flashLmbDouble();       // подсветка кнопки «ЛКМ×2»
+                    flashLmb();              // индикация двойного клика ЛКМ
                     lastVolUpTime = 0;      // сброс, чтобы тройное нажатие не стало снова "double"
                 } else {
                     // Одиночное: отправляем сразу (отзывчивее, чем ждать таймаут).
@@ -482,54 +478,32 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // =====================================================================
-    //  Индикация нажатия: экранные кнопки ЛКМ / ЛКМ×2 / ПКМ подсвечиваются
-    //  при нажатии физических клавиш Громкость+ / Громкость− — так же, как
-    //  если бы пользователь нажимал сами кнопки пальцем. Отдельных
-    //  индикаторов на экране больше нет.
+    //  Индикация нажатия ЛКМ / ПКМ (одинаковый акцентный цвет для обеих)
     // =====================================================================
 
-    /** Базовый фон кнопок мыши (рамка + прозрачная заливка до подсветки). */
-    private void applyMouseButtonBackgrounds() {
-        for (Button b : new Button[]{btnLeftClick, btnLeftDblClick, btnRightClick}) {
-            if (b != null) b.setBackgroundResource(R.drawable.mouse_button_bg);
-        }
-    }
-
-    /** Подсветка одной кнопки акцентным цветом (on/off). */
-    private void litButton(Button b, boolean on) {
-        if (b == null) return;
-        if (on) {
-            b.setBackgroundColor(getColor(R.color.button_lit));
-        } else {
-            b.setBackgroundResource(R.drawable.mouse_button_bg);
-        }
-    }
-
-    /** Кратковременная подсветка кнопки «ЛКМ» (одиночный клик Громкость+ или кнопкой). */
+    /** Кратковременная подсветка индикатора ЛКМ (клик / двойной клик). */
     private void flashLmb() {
-        litButton(btnLeftClick, true);
-        if (uiHandler != null) {
-            uiHandler.postDelayed(() -> litButton(btnLeftClick, false), INDICATOR_FLASH_MS);
-        }
-    }
-
-    /** Кратковременная подсветка кнопки «ЛКМ×2» (двойной клик Громкость+ или кнопкой). */
-    private void flashLmbDouble() {
-        litButton(btnLeftDblClick, true);
-        if (uiHandler != null) {
-            uiHandler.postDelayed(() -> litButton(btnLeftDblClick, false), INDICATOR_FLASH_MS);
-        }
+        if (indLmb == null || uiHandler == null) return;
+        indLmb.setBackgroundColor(getColor(R.color.indicator_lit));
+        uiHandler.postDelayed(() -> {
+            if (indLmb != null) indLmb.setBackgroundResource(R.drawable.indicator_bg);
+        }, INDICATOR_FLASH_MS);
     }
 
     /**
-     * Управление подсветкой кнопки «ПКМ»: горит всё время, пока удерживается
+     * Управление подсветкой индикатора ПКМ: горит всё время, пока удерживается
      * Громкость− (короткий клик — короткая вспышка, удержание-drag — непрерывно).
      */
     private void lightRmb(boolean on) {
-        litButton(btnRightClick, on);
+        if (indRmb == null) return;
+        if (on) {
+            indRmb.setBackgroundColor(getColor(R.color.indicator_lit));
+        } else {
+            indRmb.setBackgroundResource(R.drawable.indicator_bg);
+        }
     }
 
-    /** Короткая подсветка кнопки «ПКМ» при клике экранный кнопкой «ПКМ». */
+    /** Короткая подсветка индикатора ПКМ при клике экранный кнопкой «ПКМ». */
     private void flashRmbOnce() {
         lightRmb(true);
         if (uiHandler != null) {
@@ -571,10 +545,9 @@ public class MainActivity extends AppCompatActivity {
         toggleButton.setText(on ? R.string.control_on : R.string.control_off);
         toggleButton.setBackgroundColor(getColor(on ? R.color.accent_green : R.color.gray_button));
         touchPad.setActive(on);
-        if (!on) { // при выключении управления гасим подсветку кнопок мыши
+        if (!on) { // при выключении управления гасим обе подсветки
             lightRmb(false);
-            litButton(btnLeftClick, false);
-            litButton(btnLeftDblClick, false);
+            if (indLmb != null) indLmb.setBackgroundResource(R.drawable.indicator_bg);
         }
         updateStatusText();
     }
