@@ -397,14 +397,18 @@ class ClientHandler(threading.Thread):
                 self.ctrl.scroll(float(cmd.get("dy", 0)))
             elif name == "ping":
                 # v1.7: штатная команда живости канала (клиент шлёт её при
-                # простое, см. PcClient). Раньше она попадала в else и
-                # фиксировалась в логе как «неизвестная команда» — лишняя
-                # запись каждый раз, когда телефон ничего не трогает.
+                # простое, см. PcClient). Отвечаем pong и выходим: общий ack
+                # ниже дал бы лишний второй ответ на тот же ping.
                 self._sendall(b'{"resp":"pong"}\n')
                 return
             else:
                 raise ValueError("неизвестная команда: %r" % name)
-            if name != "move":  # на move не отвечаем - слишком часто
+            # v1.14: единый ack для всех исполненных команд, КРОМЕ move
+            # (слишком частый поток — ответ удваивал бы трафик) и ping (у него
+            # свой pong). Раньше ack был только у hello/down/up: move_rel/
+            # click/scroll молчали, клиент и тесты не могли подтвердить, что
+            # команда реально исполнена ("канала-призрака" не дождёшься).
+            if name != "move":  # на move не отвечаем — слишком часто
                 self._send_ok(name)
         except Exception as exc:  # noqa: BLE001
             log.warning("Ошибка команды %s: %s", name, exc)
@@ -501,51 +505,70 @@ def serve_tcp(ctrl: InputController, port: int):
     # выполняются атомарно относительно друг друга.
     LAUNCH_LOCK = threading.Lock()
 
-    def _on_closed(h):
+    def _unregister(h):
+        """Снять канал из обоих реестров (только если там всё ещё ОН)."""
         with LAUNCH_LOCK:
             if active_by_peer.get(getattr(h, "ip", None)) is h:
                 active_by_peer.pop(h.ip, None)
-            if getattr(h, "cid", "") and active_by_id.get(h.cid) is h:
-                active_by_id.pop(h.cid, None)
+            cid = getattr(h, "cid", "")
+            if cid and active_by_id.get(cid) is h:
+                active_by_id.pop(cid, None)
+
+    def _is_live(h):
+        return (h is not None and not h.stopped and h.is_alive())
+
+    def _reject_new(new_handler, reason_handler):
+        """Закрыть НОВЫЙ канал как дубликат, рабочий не трогать."""
+        log.warning("Второй клиент с IP %s (рабочий id %s vs новый id %s): "
+                    "новый канал закрыт как дубликат, рабочий сохранён",
+                    new_handler.ip, (reason_handler.cid or "?")[:8],
+                    (new_handler.cid or "?")[:8])
+        new_handler.stopped = True
+        try:
+            new_handler.conn.close()
+        except Exception:
+            pass
+
+    def _on_closed(h):
+        """Канал завершился: снимаем его из реестров, если он там ещё числится."""
+        _unregister(h)
 
     def _on_hello(handler, cid):
-        """v1.10: регистрация канала по clientId при первом hello."""
+        """v1.10: регистрация канала по clientId при первом hello.
+
+        Два случая:
+        1) Под этим id уже живёт другой сокет — ТОТ ЖЕ клиент переподключился
+           (старый его экземпляр PcClient ещё не добит сетевым стеком): тихо
+           гасим СТАРЫЙ канал, новый становится рабочим.
+        2) Handler ещё не зарегистрирован по своему IP (см. _evict_duplicate:
+           рабочий канал с другим id) —hello пришёл от дубликата: закрываем
+           НОВЫЙ, рабочий сохраняем.
+        """
         if not cid:
             return
-        drop_new = False
-        old_same_id = None
+        stale = []
         with LAUNCH_LOCK:
             handler.cid = cid
+            # Прежний канал под ЭТИМ же id (этот же клиент переподключился)…
             old = active_by_id.get(cid)
-            if old is not None and old is not handler and old.is_alive():
-                # Тот же клиент (тот же id) открыл новый сокет, старый ещё жив:
-                # штатное переподключение — тихо гасим старый канал.
-                old_same_id = old
-            else:
-                same_ip = [h for ip_, h in list(active_by_peer.items())
-                           if ip_ == handler.ip and h is not handler and h.is_alive()]
-                for h in same_ip:
-                    if h.cid == cid:
-                        continue  # тот же клиент — разберёмся выше
-                    # ДРУГОЙ живой клиент с тем же IP телефона — дубликат-«сирота».
-                    # Рабочий канал НЕ трогаем; нового закрываем сами.
-                    log.warning("Обнаружен второй клиент с IP %s (id %s vs %s): "
-                                "новый канал закрыт как дубликат, рабочий сохранён",
-                                handler.ip, cid[:8], (h.cid or "?")[:8])
-                    drop_new = True
-                    break
-            if not drop_new:
-                active_by_id[cid] = handler
-                active_by_peer[handler.ip] = handler
-        if old_same_id is not None:
-            log.info("Клиент %s переподключился: закрываю его прежний канал %s",
-                     cid[:8], old_same_id.peer)
-            old_same_id.shutdown()
-        if drop_new:
-            handler.stopped = True
+            if old is not None and old is not handler and _is_live(old):
+                stale.append(old)
+            # …и любой прежний владелец IP (другой id — «сирота», или pending
+            # без hello): оба вытесняются новым рабочим каналом.
+            cur = active_by_peer.get(handler.ip)
+            if (cur is not None and cur is not handler and _is_live(cur)
+                    and cur not in stale):
+                stale.append(cur)
+            active_by_id[cid] = handler
+            active_by_peer[handler.ip] = handler
+        for h in stale:
+            log.info("Вытеснение прежнего канала %s (id %s): новое подключение",
+                     h.peer, (h.cid or "pending")[:8])
+            _unregister(h)
+            h.stopped = True
             try:
-                handler.conn.close()
-            except Exception:
+                h.conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
                 pass
 
     try:
@@ -570,13 +593,41 @@ def serve_tcp(ctrl: InputController, port: int):
             # v1.10: здесь НЕ вытесняем старый канал «вслепую» (по одному IP):
             # до получения hello сервер не знает, тот ли это клиент переподключился
             # или чужой дубликат; преждевременное вытеснение и рвало рабочий
-            # канал. Разбор — в _on_hello() при регистрации clientId.
+            # канал. Разбор — в _evict_duplicate()/­_on_hello().
             handler = ClientHandler(conn, ctrl, peer, on_closed=_on_closed,
                               listen_port=port)
             handler.ip = ip
             handler.cid = ""
             handler.on_hello = _on_hello
-            active_by_peer[ip] = handler
+            # v1.13/1.14: на accept НЕ вытесняем зарегистрированные рабочие
+            # каналы с другим id — их разбор делает _on_hello (иначе genuine-
+            # переподключение отвергалось как дубликат). Но прежний pending-
+            # канал без id по тому же IP — это, как правило, тот же клиент,
+            # который переподключился раньше, чем успел прислать hello:
+            # тихо гасим его и регистрируем новый как pending.
+            # v1.14: политика «ПОСЛЕДНИЙ ПОБЕДИТЕЛЬ» по IP телефона. Новый
+            # TCP-канал с того же IP всегда становится рабочим, прежний тихо
+            # закрывается — независимо от clientId. Это ровно то поведение,
+            # которого требует симптом «клиент переподключается по новому
+            # порту»: у телефона в момент переподключения может жить старый
+            # экземпляр PcClient, и сервер обязан отдать канал новому, а не
+            # спорить, кто из них «правильный». Реестр по clientId остаётся
+            # для диагностики в логах.
+            evicted = None
+            with LAUNCH_LOCK:
+                cur = active_by_peer.get(ip)
+                if cur is not None and cur is not handler and _is_live(cur):
+                    evicted = cur
+                active_by_peer[ip] = handler
+            if evicted is not None:
+                log.info("Новое подключение с IP %s: прежний канал %s закрыт "
+                         "штатно (последний победитель)", ip, evicted.peer)
+                _unregister(evicted)
+                evicted.stopped = True
+                try:
+                    evicted.conn.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
             handler.start()
     finally:
         srv.close()
