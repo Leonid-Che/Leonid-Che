@@ -8,17 +8,33 @@ TCP-сервер для Windows 10. Принимает команды от Andro
 """
 import argparse
 import ctypes
+import errno
 import json
 import logging
 import os
+import select
 import socket
 import sys
 import threading
+import time
 from ctypes.wintypes import DWORD, LONG
 
 from . import protocol
 
 log = logging.getLogger("touchcursor")
+
+
+def _is_peer_gone(exc: OSError) -> bool:
+    """Исключение означает, что ВТОРАЯ сторона закрыла соединение (FIN/RST),
+    а не локальную проблему (таймаут, прерывание системным вызовом)."""
+    if isinstance(exc, ConnectionError):
+        return True
+    if isinstance(exc, BlockingIOError):  # EAGAIN/EWOULDBLOCK — просто нет данных
+        return False
+    if exc.errno in (errno.EINTR, errno.EAGAIN, errno.EWOULDBLOCK,
+                     errno.EALREADY, errno.EINPROGRESS, errno.ETIMEDOUT):
+        return False
+    return True
 
 # --- Win32 API через ctypes (а не pywin32) -------------------------------
 # Использование стандартного ctypes позволяет собрать сервер в один
@@ -122,6 +138,15 @@ class InputController:
             user32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, step, None)
 
 
+def line_cmd_summary(cmd: dict) -> str:
+    """Краткое описание команды для диагностического лога (без лишних байт)."""
+    parts = [str(cmd.get("cmd", "?"))]
+    for key in ("button", "double", "x", "y", "dx", "dy"):
+        if key in cmd:
+            parts.append("%s=%s" % (key, cmd[key]))
+    return ",".join(parts)[:80]
+
+
 class ClientHandler(threading.Thread):
     """Разговор с одним смартфоном. Транспорт не важен: подойдёт сокет
     (Wi-Fi/BT RFCOMM) или USB-канал AOA — лишь бы read()/write() были."""
@@ -129,6 +154,11 @@ class ClientHandler(threading.Thread):
     # Максимальный размер буфера строки. Защита от "залипания" без перевода
     # строки (битый транспорт/мусор в канале): иначе buf рос бы бесконечно.
     MAX_LINE_BYTES = 64 * 1024
+    # Период опроса сокета (сек). Заодно задаёт частоту heartbeat-ответов.
+    POLL_INTERVAL = 0.5
+    # Если клиент молчит дольше этого времени, сервер шлёт {"resp":"ping"} —
+    # «доказательство жизни» для клиента и трафик против Wi-Fi энергосбережения.
+    HEARTBEAT_AFTER = 5.0
 
     def __init__(self, conn, ctrl: InputController, peer: str = "?"):
         super().__init__(daemon=True)
@@ -136,6 +166,10 @@ class ClientHandler(threading.Thread):
         self.ctrl = ctrl
         self.peer = peer
         self.buf = b""
+        # v1.4: диагностика обрывов — кто именно закрыл соединение.
+        self.last_cmd = ""
+        self.cmd_count = 0
+        self.connected_at = time.time()
 
     def _recv(self):
         if hasattr(self.conn, "recv"):
@@ -148,13 +182,40 @@ class ClientHandler(threading.Thread):
         else:
             self.conn.write(data)
 
+    def _can_read(self, timeout: float) -> bool:
+        """True, если на канале есть данные. Для сокетов — select() с таймаутом;
+        для не-сокетных транспортов (USB AOA, COM) — обычный блокирующий read."""
+        raw = getattr(self.conn, "_sock", None)
+        if isinstance(raw, socket.socket):
+            try:
+                r, _, _ = select.select([raw], [], [], timeout)
+                return bool(r)
+            except (OSError, ValueError):
+                # Сокет закрыт/некорректен — пусть read() выдаст штатную ошибку.
+                return True
+        return True
+
     def run(self):
         log.info("Клиент подключился: %s", self.peer)
+        reason = "клиент закрыл соединение (EOF)"
         try:
+            last_rx = time.time()
             while True:
+                if not self._can_read(self.POLL_INTERVAL):
+                    # Данных нет — это НОРМАЛЬНОЕ состояние простоя, а не ошибка.
+                    # Раз в HEARTBEAT_AFTER шлём лёгкий ping: клиент видит жизнь
+                    # канала, а Wi-Fi-адаптер не «засыпает» на молчаливом соединении.
+                    if time.time() - last_rx >= self.HEARTBEAT_AFTER:
+                        last_rx = time.time()
+                        try:
+                            self._sendall(b'{"resp":"ping"}\n')
+                        except OSError:
+                            pass  # обрыв будет обнаружен следующим чтением
+                    continue
                 data = self._recv()
                 if not data:
                     break
+                last_rx = time.time()
                 self.buf += data
                 while b"\n" in self.buf:
                     line, self.buf = self.buf.split(b"\n", 1)
@@ -163,12 +224,23 @@ class ClientHandler(threading.Thread):
                     log.warning("Переполнение буфера от %s — сброс %d байт",
                                 self.peer, len(self.buf))
                     self.buf = b""
-        except (ConnectionError, OSError):
-            pass
+        except OSError as exc:
+            if _is_peer_gone(exc):
+                reason = "соединение разорвано второй стороной (%s)" % exc
+            else:
+                reason = "локальная ошибка канала (%s) — соединение сохранено" % exc
+                log.warning(reason)
         except Exception as exc:  # noqa: BLE001 - поток не должен умирать молча
-            log.warning("Ошибка чтения канала %s: %s", self.peer, exc)
+            reason = "внутренняя ошибка потока: %r" % exc
+            log.warning(reason)
         finally:
-            log.info("Клиент отключился: %s", self.peer)
+            # v1.4: подробная диагностика — раньше «Клиент отключился» было
+            # невозможно объяснить; теперь видно, на какой команде и как долго
+            # жила сессия.
+            log.info("Клиент отключился: %s | команд: %d, последняя: %r, "
+                     "сессия: %.1f с, причина: %s",
+                     self.peer, self.cmd_count, self.last_cmd,
+                     time.time() - self.connected_at, reason)
             try:
                 self.conn.close()
             except Exception:
@@ -191,6 +263,9 @@ class ClientHandler(threading.Thread):
             log.warning("Необработанная ошибка в команде %s: %s", name, exc)
 
     def _dispatch(self, cmd: dict, name: str):
+        # v1.4: счётчик и последняя команда — для диагностики в логе при обрыве.
+        self.cmd_count += 1
+        self.last_cmd = line_cmd_summary(cmd)
         try:
             if name == "hello":
                 log.info("Устройство: %s (канал: %s)", cmd.get("name", "?"),
@@ -273,6 +348,13 @@ def serve_tcp(ctrl: InputController, port: int):
         while True:
             conn, addr = srv.accept()
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            # v1.4: KEEPALIVE на уровне TCP. Без него «мёртвое» соединение
+            # (телефон ушёл в сон/потерял Wi-Fi, обрыв кабеля роутером) может
+            # висеть часами; с ним ядро само обнаруживает потерю пилона.
+            try:
+                conn.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 15000, 5000))
+            except OSError:
+                pass  # не Windows / недоступно — не критично
             ClientHandler(conn, ctrl, "%s:%d" % addr[:2]).start()
     finally:
         srv.close()

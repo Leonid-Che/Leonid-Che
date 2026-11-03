@@ -26,7 +26,15 @@ public class TcpTransport implements Transport {
         Socket s = new Socket();
         s.connect(new InetSocketAddress(host, port), PcClient.CONNECT_TIMEOUT_MS);
         s.setTcpNoDelay(true);
-        s.setKeepAlive(true);
+        // v1.4: setKeepAlive(false) вместо setKeepAlive(true).
+        // Стандартный TCP keepalive Android имеет интервал ~2 часа и никогда
+        // не включается при живом трафике; на некоторых прошивках он, наоборот,
+        // конфликтовал с энергосбережением Wi-Fi (Doze/WoW-фильтры роутера):
+        // «молчаливое» соединение без входящего трафика выгружалось адаптером,
+        // а первое же касание тачпада/кнопки вызывало RST — сервер печатал
+        // «Клиент отключился». Живость канала теперь поддерживают heartbeat-пакеты
+        // сервера (см. server.py), поэтому keepalive на сокете не нужен.
+        s.setKeepAlive(false);
         socket = s;
     }
 

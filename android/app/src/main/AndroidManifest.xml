@@ -8,6 +8,10 @@
     <!-- Foreground-сервис управления (обязательно с Android 9/API 28,
          иначе startForeground() бросает SecurityException и приложение падает) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- v1.4: не давать CPU/Wi-Fi засыпать во время активного управления —
+         иначе TCP-канал «умирает» в фоне, а первое касание приходит в разорванный
+         сокет (сервер печатает «Клиент отключился») -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Тип сервиса connectedDevice: дополнительно требуется с Android 14/API 34 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
 

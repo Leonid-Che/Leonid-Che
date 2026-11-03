@@ -25,6 +25,8 @@ public class PcClient implements Runnable {
 
     static final int CONNECT_TIMEOUT_MS = 4000;
     private static final int RECONNECT_DELAY_MS = 2000;
+    /** v1.4: экспоненциальная задержка переподключения — от 2 до 30 секунд. */
+    private static final int RECONNECT_DELAY_MAX_MS = 30000;
     /** Максимальная частота move-команд, чтобы не топить сеть и сервер. */
     private static final long MOVE_MIN_INTERVAL_MS = 30;
 
@@ -126,11 +128,13 @@ public class PcClient implements Runnable {
 
     @Override
     public void run() {
+        int backoff = RECONNECT_DELAY_MS; // v1.4: экспоненциальная задержка (2..30 с)
         while (running) {
             Transport t = null;
             try {
                 t = createTransport();
                 t.connect();
+                backoff = RECONNECT_DELAY_MS; // соединение удалось — сброс паузы
                 // Публикуем канал атомарно (см. publish/unpublish): старый
                 // экземпляр клиента мог ещё оставаться в поле transport у UI-потока,
                 // и его закрытие здесь обрывало РАБОТАЮЩЕЕ соединение — сервер видел
@@ -191,10 +195,14 @@ public class PcClient implements Runnable {
             if (!running) break;
             callback.onDisconnected(lastError);
             try {
-                Thread.sleep(RECONNECT_DELAY_MS);
+                Thread.sleep(backoff);
             } catch (InterruptedException e) {
                 break;
             }
+            // v1.4: экспоненциальная пауза до 30 с — при устойчивых обрывах
+            // не «долбить» сервер каждые 2 секунды (это само по себе создавало
+            // лавину подключений/разрывов в логе).
+            backoff = Math.min(backoff * 2, RECONNECT_DELAY_MAX_MS);
         }
         connected = false;
     }

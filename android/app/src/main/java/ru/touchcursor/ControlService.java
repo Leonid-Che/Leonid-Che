@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.os.Binder;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 
 import androidx.core.app.NotificationCompat;
 
@@ -34,6 +35,16 @@ public class ControlService extends Service {
     private volatile boolean controlling = false;
     private PcClient client;
     private Thread clientThread;
+
+    /**
+     * v1.4: PARTIAL_WAKE_LOCK на время активного управления.
+     * Когда экран телефона гаснет (или система уходит в Doze), CPU и Wi-Fi
+     * адаптер приостанавливаются: TCP-соединение «зависает», а первое же
+     * касание после пробуждения приходит в уже разорванный сокет — сервер
+     * печатает «Клиент отключился», клиент переподключается. Удержание
+     * partial wake lock не даёт каналу умирать между событиями.
+     */
+    private PowerManager.WakeLock wakeLock;
 
     private int speedLevel = SPEED_DEFAULT;
 
@@ -169,6 +180,7 @@ public class ControlService extends Service {
             stopControlling(); // параметры изменились - переподключаемся осознанно
         }
         controlling = true;
+        acquireWakeLock();
         updateNotification(getString(R.string.notification_connecting));
 
         client = new PcClient(this, mode, ip, port, btMac, deviceName,
@@ -198,6 +210,7 @@ public class ControlService extends Service {
     /** Выключить управление: разорвать соединение. */
     public void stopControlling() {
         controlling = false;
+        releaseWakeLock();
         PcClient c = client;
         client = null;
         if (c != null) c.shutdown();
@@ -250,6 +263,37 @@ public class ControlService extends Service {
         if (c != null) c.sendMoveRelative(dx, dy);
     }
 
+    // ---------- Wake lock (v1.4) ----------
+
+    private void acquireWakeLock() {
+        try {
+            PowerManager.WakeLock wl = wakeLock;
+            if (wl == null) {
+                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+                wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TouchCursor::ctrl");
+                wl.setReferenceCounted(false);
+                wakeLock = wl;
+            }
+            if (!wl.isHeld()) {
+                // Таймаут-страховка: 2 часа — дальше система сама отпустит блокировку.
+                wl.acquire(2 * 60 * 60 * 1000L);
+            }
+        } catch (Exception ignored) {
+            // Нет права WAKE_LOCK / нестандартная прошивка — управление продолжит
+            // работать, просто без защиты от зависания канала во сне.
+        }
+    }
+
+    private void releaseWakeLock() {
+        try {
+            PowerManager.WakeLock wl = wakeLock;
+            if (wl != null && wl.isHeld()) {
+                wl.release();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     // ---------- Уведомление ----------
 
     private void createChannel() {
@@ -280,6 +324,7 @@ public class ControlService extends Service {
     @Override
     public void onDestroy() {
         stopControlling();
+        releaseWakeLock();
         super.onDestroy();
     }
 }
