@@ -1,5 +1,52 @@
 # update.md — журнал изменений TouchCursor
 
+## v1.6 — исправлены ошибки компиляции APK в MainActivity.java (cannot find symbol)
+
+### Симптом
+При сборке APK компилятор выдавал ошибки «cannot find symbol» в
+`MainActivity.java` (строка 494 и связанные):
+```
+error: cannot find symbol
+        for (Button b : new Button[]{btnLeftClick, btnLeftDblClick, btnRightClick})
+  symbol:   variable btnLeftClick
+```
+
+### Причина
+В проект попала смесь двух поколений подсветки: метод `applyMouseButtonBackgrounds()`
+обращался к полям `btnLeftClick / btnLeftDblClick / btnRightClick`, которые **никогда
+не объявлялись и не инициализировались** — в классе по-прежнему существовали только
+старые поля отдельных индикаторов `indLmb / indRmb`. Кроме того, `flashLmb()/lightRmb()`
+красили именно эти отдельные TextView-индикаторы, а не кнопки мыши, что противоречило
+требованию «отдельную подсветку убрать, красить сами кнопки».
+
+### Что исправлено
+* **MainActivity.java**:
+  - объявлены поля `private Button btnLeftClick, btnLeftDblClick, btnRightClick;`
+    вместо удалённых `indLmb/indRmb`;
+  - в `onCreate()` они связываются с кнопками раскладки через
+    `findViewById(R.id.btn_left_click / btn_left_dblclick / btn_right_click)` и
+    вызывается `applyMouseButtonBackgrounds()` (раньше этот метод нигде не вызывался);
+  - `flashLmb()`, новый `flashLmbDouble()`, `lightRmb()`, `flashRmbOnce()` теперь
+    подсвечивают **сами экранные кнопки** через `setPressed()` — точно так же, как при
+    нажатии пальцем (фон-selector `mouse_button_bg.xml`: обычный серый → зелёный);
+  - двойной клик Громкость+ подсвечивает кнопку «ЛКМ×2» (раньше ошибочно мигала «ЛКМ»);
+  - при выключении управления гасятся подсветки всех трёх кнопок.
+* **Раскладки** (`layout`, `layout-port`, `layout-land/activity_main.xml`): удалены
+  лишние TextView-индикаторы `ind_lmb`/`ind_rmb`, ряд кнопок приведён к пяти элементам
+  (`weightSum="5"`) — ЛКМ, ЛКМ×2, ПКМ, ▲, ▼ одной высоты.
+* **Ресурсы**: удалён более никем не используемый `drawable/indicator_bg.xml`; из
+  `colors.xml` убраны алиасы `indicator_base/indicator_lit`, из `strings.xml` — строки
+  `ind_lmb/ind_rmb` (сборка больше не зависит от этих ресурсов).
+
+### Проверка
+* `grep` по проекту: ни одного упоминания `ind_lmb/ind_rmb/indicator_*` в Java/XML не осталось;
+* все XML (3 раскладки, colors, strings, mouse_button_bg) валидны;
+* контрольный прогон javac: ошибок «cannot find symbol» в MainActivity.java нет.
+
+### Действия
+Заберите обновлённые файлы (или `git pull`), затем Android Studio:
+**File → Sync Project with Gradle Files → Build → Clean Project → Assemble Project**.
+
 ## v1.5 — устранение ложного «Клиент отключился» по диагностике из консоли сервера
 
 ### Симптом
