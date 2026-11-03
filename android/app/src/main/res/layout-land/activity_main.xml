@@ -127,32 +127,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="4dp"
-        android:weightSum="7">
-
-        <!-- Индикация нажатий ЛКМ/ПКМ (подсвечиваются при Громкость+/Громкость−) -->
-        <TextView
-            android:id="@+id/ind_lmb"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginEnd="3dp"
-            android:gravity="center"
-            android:background="@drawable/indicator_bg"
-            android:textColor="@color/text_light"
-            android:textSize="11sp"
-            android:text="@string/ind_lmb" />
-
-        <TextView
-            android:id="@+id/ind_rmb"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:layout_marginEnd="3dp"
-            android:gravity="center"
-            android:background="@drawable/indicator_bg"
-            android:textColor="@color/text_light"
-            android:textSize="11sp"
-            android:text="@string/ind_rmb" />
+        android:weightSum="5">
 
         <Button
             android:id="@+id/btn_left_click"
@@ -160,6 +135,11 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
+            android:background="@drawable/mouse_button_bg"
             android:text="@string/btn_lclick" />
 
         <Button
@@ -168,6 +148,11 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
+            android:background="@drawable/mouse_button_bg"
             android:text="@string/btn_ldouble" />
 
         <Button
@@ -176,6 +161,11 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:textSize="11sp"
+            android:maxLines="1"
+            android:autoSizeTextType="none"
+            android:includeFontPadding="false"
+            android:textAllCaps="false"
+            android:background="@drawable/mouse_button_bg"
             android:text="@string/btn_rclick" />
 
         <Button

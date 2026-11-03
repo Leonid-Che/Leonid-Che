@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Фон индикаторов ЛКМ/ПКМ: сплошная подложка с рамкой.
-     При подсветке поверх перекрывается цветом indicator_lit через setBackgroundColor(). -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="rectangle">
-    <solid android:color="@color/indicator_base" />
-    <corners android:radius="6dp" />
-    <stroke android:width="1dp" android:color="#546E7A" />
-</shape>

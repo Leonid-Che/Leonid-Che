@@ -56,9 +56,9 @@ public class MainActivity extends AppCompatActivity {
     private EditText ipEdit;
     private Button btnUsb, btnBt;
     private TextView speedText;
-    // Индикаторы нажатия ЛКМ/ПКМ: подсвечиваются одним акцентным цветом
-    // при одиночном/двойном клике Громкость+ и при клике/удержании Громкость−.
-    private android.widget.TextView indLmb, indRmb;
+    // Экранные кнопки мыши: подсвечиваются (состояние "нажата") при нажатии
+    // физических клавиш Громкость+/Громкость− — так же, как при тапе пальцем.
+    private Button btnLeftClick, btnLeftDblClick, btnRightClick;
     private static final long INDICATOR_FLASH_MS = 180; // длительность подсветки клика
     private android.os.Handler uiHandler = null;
 
@@ -105,8 +105,10 @@ public class MainActivity extends AppCompatActivity {
         btnUsb = findViewById(R.id.btn_conn_usb);
         btnBt = findViewById(R.id.btn_conn_bt);
         speedText = findViewById(R.id.tv_speed);
-        indLmb = findViewById(R.id.ind_lmb);
-        indRmb = findViewById(R.id.ind_rmb);
+        btnLeftClick = findViewById(R.id.btn_left_click);
+        btnLeftDblClick = findViewById(R.id.btn_left_dblclick);
+        btnRightClick = findViewById(R.id.btn_right_click);
+        applyMouseButtonBackgrounds();
 
         // Восстановить сохранённые настройки
         var prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
@@ -194,7 +196,7 @@ public class MainActivity extends AppCompatActivity {
             if (bound && svc != null) { svc.sendClick("left", false); flashLmb(); }
         });
         findViewById(R.id.btn_left_dblclick).setOnClickListener(v -> {
-            if (bound && svc != null) { svc.sendClick("left", true); flashLmb(); }
+            if (bound && svc != null) { svc.sendClick("left", true); flashLmbDouble(); }
         });
         findViewById(R.id.btn_right_click).setOnClickListener(v -> {
             if (bound && svc != null) { svc.sendClick("right", false); flashRmbOnce(); }
@@ -357,7 +359,15 @@ public class MainActivity extends AppCompatActivity {
             unbindService(conn);
             bound = false;
         }
-        stopService(new Intent(this, ControlService.class));
+        // v1.5: НЕ вызывать stopService() здесь.
+        // При пересоздании активности (поворот экрана, восстановление системой,
+        // перезапуск приложения) Android сначала уничтожает старый экземпляр —
+        // прежний код в этот момент останавливал foreground-сервис и рвал живой
+        // TCP-канал. Сервер фиксировал «Клиент отключился» (сессия ~0 с,
+        // последняя команда 'hello') ровно после включения управления и первых
+        // касаний, после чего клиент переподключался. Решение о выключении
+        // управления теперь принимает сам сервис в onUnbind() при последней
+        // отвязке — корректно, с честным shutdown клиента.
         super.onDestroy();
     }
 
@@ -431,6 +441,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void handleVolumeKey(int code, int action, int repeatCount) {
+        if (svc == null) return; // сервис ещё не привязан — только подсветка без отправки
         if (code == KeyEvent.KEYCODE_VOLUME_UP) {
             if (action == KeyEvent.ACTION_DOWN) {
                 if (repeatCount > 0) return; // игнорируем автоповтор при долгом удержании
@@ -440,7 +451,7 @@ public class MainActivity extends AppCompatActivity {
                 if (now - lastVolUpTime <= DOUBLE_CLICK_TIMEOUT_MS) {
                     // Второе нажатие в пределах окна двойного клика -> double click
                     svc.sendClick("left", true);
-                    flashLmb();              // индикация двойного клика ЛКМ
+                    flashLmbDouble();         // подсветка кнопки «ЛКМ×2» — двойной клик
                     lastVolUpTime = 0;      // сброс, чтобы тройное нажатие не стало снова "double"
                 } else {
                     // Одиночное: отправляем сразу (отзывчивее, чем ждать таймаут).
@@ -480,29 +491,48 @@ public class MainActivity extends AppCompatActivity {
     //  Индикация нажатия ЛКМ / ПКМ (одинаковый акцентный цвет для обеих)
     // =====================================================================
 
-    /** Кратковременная подсветка индикатора ЛКМ (клик / двойной клик). */
-    private void flashLmb() {
-        if (indLmb == null || uiHandler == null) return;
-        indLmb.setBackgroundColor(getColor(R.color.indicator_lit));
-        uiHandler.postDelayed(() -> {
-            if (indLmb != null) indLmb.setBackgroundResource(R.drawable.indicator_bg);
-        }, INDICATOR_FLASH_MS);
-    }
-
-    /**
-     * Управление подсветкой индикатора ПКМ: горит всё время, пока удерживается
-     * Громкость− (короткий клик — короткая вспышка, удержание-drag — непрерывно).
-     */
-    private void lightRmb(boolean on) {
-        if (indRmb == null) return;
-        if (on) {
-            indRmb.setBackgroundColor(getColor(R.color.indicator_lit));
-        } else {
-            indRmb.setBackgroundResource(R.drawable.indicator_bg);
+    /** Базовый фон кнопок мыши (рамка + прозрачная заливка до подсветки). */
+    private void applyMouseButtonBackgrounds() {
+        for (Button b : new Button[]{btnLeftClick, btnLeftDblClick, btnRightClick}) {
+            if (b != null) b.setBackgroundResource(R.drawable.mouse_button_bg);
         }
     }
 
-    /** Короткая подсветка индикатора ПКМ при клике экранный кнопкой «ПКМ». */
+    /**
+     * Подсветка кнопки: имитируем состояние "нажата" (setPressed). Фон кнопок —
+     * selector mouse_button_bg.xml, поэтому вид полностью такой же, как при
+     * реальном нажатии кнопки пальцем. Отдельных индикаторов на экране нет.
+     */
+    private void litButton(Button b, boolean on) {
+        if (b == null) return;
+        b.setPressed(on);
+    }
+
+    /** Кратковременная подсветка кнопки «ЛКМ» (одиночный клик Громкость+ или кнопкой). */
+    private void flashLmb() {
+        litButton(btnLeftClick, true);
+        if (uiHandler != null) {
+            uiHandler.postDelayed(() -> litButton(btnLeftClick, false), INDICATOR_FLASH_MS);
+        }
+    }
+
+    /** Кратковременная подсветка кнопки «ЛКМ×2» (двойной клик Громкость+). */
+    private void flashLmbDouble() {
+        litButton(btnLeftDblClick, true);
+        if (uiHandler != null) {
+            uiHandler.postDelayed(() -> litButton(btnLeftDblClick, false), INDICATOR_FLASH_MS);
+        }
+    }
+
+    /**
+     * Управление подсветкой кнопки «ПКМ»: горит всё время, пока удерживается
+     * Громкость− (короткий клик — короткая вспышка, удержание-drag — непрерывно).
+     */
+    private void lightRmb(boolean on) {
+        litButton(btnRightClick, on);
+    }
+
+    /** Короткая подсветка кнопки «ПКМ» при клике экранной кнопкой «ПКМ». */
     private void flashRmbOnce() {
         lightRmb(true);
         if (uiHandler != null) {
@@ -544,9 +574,10 @@ public class MainActivity extends AppCompatActivity {
         toggleButton.setText(on ? R.string.control_on : R.string.control_off);
         toggleButton.setBackgroundColor(getColor(on ? R.color.accent_green : R.color.gray_button));
         touchPad.setActive(on);
-        if (!on) { // при выключении управления гасим обе подсветки
+        if (!on) { // при выключении управления гасим подсветки кнопок мыши
+            litButton(btnLeftClick, false);
+            litButton(btnLeftDblClick, false);
             lightRmb(false);
-            if (indLmb != null) indLmb.setBackgroundResource(R.drawable.indicator_bg);
         }
         updateStatusText();
     }
@@ -589,6 +620,24 @@ public class MainActivity extends AppCompatActivity {
             startForegroundService(intent);
         } else {
             startService(intent);
+        }
+    }
+
+    /**
+     * v1.5: явное закрытие приложения кнопкой «Назад» (управление выключено).
+     * Сервис остаётся в фоне «на всякий случай» (foreground-сервис с
+     * idle-уведомлением), поэтому при реальном выходе останавливаем его —
+     * иначе процесс висит до принудительной остановки системой. При
+     * включённом управлении выход блокируется onBackPressed(), сюда не попадаем.
+     */
+    @Override
+    public void finish() {
+        super.finish();
+        if (!isControlling()) {
+            try {
+                stopService(new Intent(this, ControlService.class));
+            } catch (Exception ignored) {
+            }
         }
     }
 }
