@@ -183,6 +183,10 @@ class ClientHandler(threading.Thread):
         # в finally, иначе peek на закрытом сокете давал ложный EOF и в логе
         # появлялось «Клиент отключился ... последняя hello».
         self.stopped = False
+        # v1.10: clientId из "hello" и колбэк регистрации (задаёт serve_tcp
+        # только для TCP-транспортов; для USB/BT остаётся None).
+        self.cid = ""
+        self.on_hello = None
 
     def _recv(self):
         if hasattr(self.conn, "recv"):
@@ -355,6 +359,14 @@ class ClientHandler(threading.Thread):
             if name == "hello":
                 log.info("Устройство: %s (канал: %s)", cmd.get("name", "?"),
                          cmd.get("transport", "wifi"))
+                # v1.10: регистрируем канал по clientId — сервер корректно
+                # различает «тот же клиент переподключился» и «появился
+                # дубликат-сирота» (см. serve_tcp._on_hello).
+                if self.on_hello is not None:
+                    try:
+                        self.on_hello(self, str(cmd.get("id", "")))
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("Ошибка регистрации hello: %s", exc)
                 w, h = self.ctrl.screen_size()
                 self._sendall((json.dumps({
                     "resp": "ok", "cmd": "hello", "screen": [w, h],
@@ -474,11 +486,67 @@ def serve_tcp(ctrl: InputController, port: int):
     # второй канал клиента никогда не вытеснялся — оба жили параллельно, и
     # гибель любого из них выглядела как «Клиент отключился ... последняя
     # hello». Вытеснение теперь работает честно.
+    # v1.10: плюс реестр активных каналов по clientId из "hello" (клиент
+    # генерирует UUID на экземпляр PcClient). Раньше вытеснение по IP срабатывало
+    # в момент accept() — ДО того, как сервер узнаёт id нового канала; при гонке
+    # двух циклов переподключения (старый «сиротский» клиент оживал через 20-30
+    # с) это рвало рабочий канал. Теперь дубликат вытесняется корректно: новый
+    # канал регистрируется под своим id, и если под этим же id уже живёт другой
+    # сокет — закрываем СТАРЫЙ (это тот же самый клиент переподключился), а
+    # если появляется второй живой id от того же IP — закрываем НОВЫЙ, не трогая
+    # рабочий канал.
     active_by_peer = {}
+    active_by_id = {}
+    # Локк реестров: регистрация (поток hello) и снятие (поток run/finally)
+    # выполняются атомарно относительно друг друга.
+    LAUNCH_LOCK = threading.Lock()
 
     def _on_closed(h):
-        if active_by_peer.get(h.ip) is h:
-            active_by_peer.pop(h.ip, None)
+        with LAUNCH_LOCK:
+            if active_by_peer.get(getattr(h, "ip", None)) is h:
+                active_by_peer.pop(h.ip, None)
+            if getattr(h, "cid", "") and active_by_id.get(h.cid) is h:
+                active_by_id.pop(h.cid, None)
+
+    def _on_hello(handler, cid):
+        """v1.10: регистрация канала по clientId при первом hello."""
+        if not cid:
+            return
+        drop_new = False
+        old_same_id = None
+        with LAUNCH_LOCK:
+            handler.cid = cid
+            old = active_by_id.get(cid)
+            if old is not None and old is not handler and old.is_alive():
+                # Тот же клиент (тот же id) открыл новый сокет, старый ещё жив:
+                # штатное переподключение — тихо гасим старый канал.
+                old_same_id = old
+            else:
+                same_ip = [h for ip_, h in list(active_by_peer.items())
+                           if ip_ == handler.ip and h is not handler and h.is_alive()]
+                for h in same_ip:
+                    if h.cid == cid:
+                        continue  # тот же клиент — разберёмся выше
+                    # ДРУГОЙ живой клиент с тем же IP телефона — дубликат-«сирота».
+                    # Рабочий канал НЕ трогаем; нового закрываем сами.
+                    log.warning("Обнаружен второй клиент с IP %s (id %s vs %s): "
+                                "новый канал закрыт как дубликат, рабочий сохранён",
+                                handler.ip, cid[:8], (h.cid or "?")[:8])
+                    drop_new = True
+                    break
+            if not drop_new:
+                active_by_id[cid] = handler
+                active_by_peer[handler.ip] = handler
+        if old_same_id is not None:
+            log.info("Клиент %s переподключился: закрываю его прежний канал %s",
+                     cid[:8], old_same_id.peer)
+            old_same_id.shutdown()
+        if drop_new:
+            handler.stopped = True
+            try:
+                handler.conn.close()
+            except Exception:
+                pass
 
     try:
         while True:
@@ -499,14 +567,15 @@ def serve_tcp(ctrl: InputController, port: int):
                 pass  # не Windows / недоступно — не критично
             peer = "%s:%d" % addr[:2]
             ip = addr[0]  # v1.7: ключ вытеснения дубликатов — IP без порта
-            old = active_by_peer.get(ip)
-            if old is not None and old.is_alive():
-                log.info("Вытесняю старый канал от %s (новый подключился раньше, "
-                         "чем закрылся прежний — дубликат клиента)", ip)
-                old.shutdown()
+            # v1.10: здесь НЕ вытесняем старый канал «вслепую» (по одному IP):
+            # до получения hello сервер не знает, тот ли это клиент переподключился
+            # или чужой дубликат; преждевременное вытеснение и рвало рабочий
+            # канал. Разбор — в _on_hello() при регистрации clientId.
             handler = ClientHandler(conn, ctrl, peer, on_closed=_on_closed,
                               listen_port=port)
             handler.ip = ip
+            handler.cid = ""
+            handler.on_hello = _on_hello
             active_by_peer[ip] = handler
             handler.start()
     finally:

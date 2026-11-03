@@ -40,6 +40,21 @@ public class PcClient implements Runnable {
      */
     private static final long IDLE_SHUTDOWN_MS = 90_000;
 
+    /**
+     * v1.10: глобальная блокировка запуска новых клиентов. В логах сервера
+     * («сессия ~23 с, последняя hello, новый локальный порт при каждом
+     * переподключении») видно, что второй TCP-канал телефона появлялся через
+     * несколько секунд после первого: старый экземпляр PcClient умирал в
+     * цикле переподключения и успевал открыть ещё один канал уже ПОСЛЕ того,
+     * как новый клиент подключился — сервер вытеснял живой канал дубликата.
+     * Теперь запуск нового клиента (run()) ждёт, пока все ранее созданные
+     * экземпляры полностью остановятся (shutdown() завершает их потоки),
+     * поэтому одновременно может работать ровно один connectLoop.
+     */
+    private static final Object LAUNCH_LOCK = new Object();
+    /** Все когда-либо запущенные клиенты (для ожидания их остановки). */
+    private static final java.util.List<PcClient> ALL_CLIENTS = new java.util.ArrayList<>();
+
     /** Режимы канала связи со смартфоном. */
     public static final int MODE_WIFI = 0;
     public static final int MODE_USB = 1;
@@ -176,6 +191,44 @@ public class PcClient implements Runnable {
             running = false;
             return;
         }
+
+        // v1.10: единственность клиента. Ждём, пока ВСЕ ранее созданные
+        // экземпляры PcClient завершатся (их потоки остановлены shutdown()),
+        // прежде чем открывать собственный TCP-канал. Без этой блокировки
+        // старый цикл переподключения мог «проснуться» уже после подключения
+        // нового клиента и открыть второй канал — сервер вытеснял живой
+        // (лог: «Клиент отключился ... последняя hello» через 20-30 с после
+        // включения управления). Блокировка снимается в finally().
+        java.util.List<PcClient> others;
+        synchronized (LAUNCH_LOCK) {
+            long deadline = System.currentTimeMillis() + 15_000L;
+            while (true) {
+                others = new java.util.ArrayList<>();
+                boolean anyActive = false;
+                for (PcClient c : ALL_CLIENTS) {
+                    if (c == this || !c.running) continue;
+                    anyActive = true;
+                    others.add(c);
+                }
+                if (!anyActive || System.currentTimeMillis() > deadline) break;
+                try {
+                    LAUNCH_LOCK.wait(500);
+                } catch (InterruptedException e) {
+                    running = false;
+                    return;
+                }
+            }
+            // Фиксируем себя как активного ПОД блокировкой: параллельный
+            // запуск второго клиента увидит нас и будет ждать здесь же.
+            running = true;
+            ALL_CLIENTS.add(this);
+        }
+        // Страховка: если чужие клиенты всё ещё живы после дедлайна —
+        // глушим их принудительно (они stopped=true, новых сокетов не откроют).
+        for (PcClient c : others) {
+            c.shutdown();
+        }
+
         int backoff = RECONNECT_DELAY_MS; // v1.4: экспоненциальная задержка (2..30 с)
         long lastConnectAttempt = System.currentTimeMillis();
         while (running) {
@@ -328,6 +381,12 @@ public class PcClient implements Runnable {
             backoff = Math.min(backoff * 2, RECONNECT_DELAY_MAX_MS);
         }
         connected = false;
+        // v1.10: снимаем блокировку единственности — следующий клиент сможет
+        // запуститься сразу после нашего завершения.
+        synchronized (LAUNCH_LOCK) {
+            ALL_CLIENTS.remove(this);
+            LAUNCH_LOCK.notifyAll();
+        }
     }
 
     // ---------- Отправка команд ----------
@@ -469,6 +528,13 @@ public class PcClient implements Runnable {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
+        }
+        // v1.10: освобождаем блокировку единственности даже если цикл этого
+        // клиента ещё дописывает последнюю итерацию (ждёт backoff): иначе
+        // следующий клиент простоял бы в LAUNCH_LOCK лишние секунды.
+        synchronized (LAUNCH_LOCK) {
+            ALL_CLIENTS.remove(this);
+            LAUNCH_LOCK.notifyAll();
         }
     }
 
