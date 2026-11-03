@@ -160,7 +160,8 @@ class ClientHandler(threading.Thread):
     # «доказательство жизни» для клиента и трафик против Wi-Fi энергосбережения.
     HEARTBEAT_AFTER = 5.0
 
-    def __init__(self, conn, ctrl: InputController, peer: str = "?"):
+    def __init__(self, conn, ctrl: InputController, peer: str = "?",
+                 on_closed=None):
         super().__init__(daemon=True)
         self.conn = conn
         self.ctrl = ctrl
@@ -170,6 +171,9 @@ class ClientHandler(threading.Thread):
         self.last_cmd = ""
         self.cmd_count = 0
         self.connected_at = time.time()
+        # v1.5: обратный вызов «сессия завершена» (для вытеснения старых
+        # клиентов, см. serve_tcp). Вызывается из finally после закрытия канала.
+        self.on_closed = on_closed
 
     def _recv(self):
         if hasattr(self.conn, "recv"):
@@ -299,6 +303,11 @@ class ClientHandler(threading.Thread):
                 self.conn.close()
             except Exception:
                 pass
+            if self.on_closed is not None:
+                try:
+                    self.on_closed(self)
+                except Exception:
+                    pass
 
     def handle_line(self, line: str):
         cmd = protocol.parse_line(line)
@@ -366,6 +375,21 @@ class ClientHandler(threading.Thread):
         except OSError:
             pass
 
+    def shutdown(self):
+        """Штатное завершение сессии по инициативе СЕРВЕРА (например, при
+        перезапуске): сначала закрываем listen-сокет, чтобы accept() не принял
+        новый канал раньше, чем будет закрыт старый. Иначе на телефоне два
+        клиента могли бы одновременно держать соединение — а закрытие старого
+        экземпляра выглядело в логе как «Клиент отключился»."""
+        try:
+            self.conn.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            self.conn.close()
+        except Exception:
+            pass
+
 
 def get_local_ips():
     """IP-адреса этого компьютера в локальной сети (для вывода в консоль)."""
@@ -398,6 +422,20 @@ def serve_tcp(ctrl: InputController, port: int):
     else:
         log.info("Откройте в брандмауэре Windows входящий TCP-порт %d для программы Python.", port)
 
+    # v1.5: «последний победитель» — активный клиент на каждый IP телефона.
+    # Диагностический лог («сессия: 0.0 с, последняя hello») показал, что при
+    # включении управления телефон открывал ВТОРОЙ TCP-канал, не закрывая
+    # первый: два PcClient жили одновременно (активность и foreground-сервис
+    # запускали по копии клиента). Когда дубликат умирал, сервер печатал
+    # «Клиент отключился» ровно в момент первых касаний. Теперь старый канал
+    # с того же IP вытесняется сразу при появлении нового — обрывы дубликата
+    # больше не видны как разрыв рабочего соединения.
+    active_by_peer = {}
+
+    def _on_closed(h):
+        if active_by_peer.get(h.peer) is h:
+            active_by_peer.pop(h.peer, None)
+
     try:
         while True:
             conn, addr = srv.accept()
@@ -405,11 +443,25 @@ def serve_tcp(ctrl: InputController, port: int):
             # v1.4: KEEPALIVE на уровне TCP. Без него «мёртвое» соединение
             # (телефон ушёл в сон/потерял Wi-Fi, обрыв кабеля роутером) может
             # висеть часами; с ним ядро само обнаруживает потерю пилона.
+            # v1.5 ВАЖНО: ловим и AttributeError — на не-Windows Python у
+            # объекта socket нет метода ioctl(), а предыдущий except OSError
+            # его не перехватывал: поток accept() падал со stacktrace, сервер
+            # продолжал «висеть» на порту, но все новые подключения обрывались
+            # сразу после hello (RST). Именно это выглядело как «Клиент
+            # отключился ... последняя hello» при тестировании.
             try:
                 conn.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 15000, 5000))
-            except OSError:
+            except (OSError, AttributeError):
                 pass  # не Windows / недоступно — не критично
-            ClientHandler(conn, ctrl, "%s:%d" % addr[:2]).start()
+            peer = "%s:%d" % addr[:2]
+            old = active_by_peer.get(peer)
+            if old is not None and old.is_alive():
+                log.info("Вытесняю старый канал от %s (новый подключился раньше, "
+                         "чем закрылся прежний — дубликат клиента)", peer)
+                old.shutdown()
+            handler = ClientHandler(conn, ctrl, peer, on_closed=_on_closed)
+            active_by_peer[peer] = handler
+            handler.start()
     finally:
         srv.close()
 

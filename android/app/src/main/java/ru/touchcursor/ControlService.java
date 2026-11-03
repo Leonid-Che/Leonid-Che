@@ -32,6 +32,9 @@ public class ControlService extends Service {
 
     private final LocalBinder binder = new LocalBinder();
 
+    /** v1.5: счётчик живых привязанных активностей (см. onUnbind). */
+    private int boundCount = 0;
+
     private volatile boolean controlling = false;
     private PcClient client;
     private Thread clientThread;
@@ -124,7 +127,33 @@ public class ControlService extends Service {
 
     @Override
     public IBinder onBind(Intent intent) {
+        boundCount++;
         return binder;
+    }
+
+    /**
+     * v1.5: защита от «сиротского» клиента.
+     * Раньше onDestroy() в MainActivity безусловно вызывал stopService(): при
+     * пересоздании активности (поворот экрана, восстановление системой,
+     * повторный запуск приложения) это останавливало сервис и рвало живой
+     * TCP-канал — сервер печатал «Клиент отключился» с последней командой
+     * 'hello' ровно после включения управления и первых касаний. Теперь при
+     * последнем unbind управление осознанно выключается здесь (корректный
+     * shutdown клиента), а сам процесс сервиса остаётся живым до явного
+     * выключения кнопкой или остановки системой.
+     */
+    @Override
+    public boolean onUnbind(Intent intent) {
+        if (boundCount > 0) boundCount--;
+        if (boundCount == 0 && controlling) {
+            stopControlling();
+        }
+        return true; // разрешить повторный onBind -> наRebind
+    }
+
+    @Override
+    public void onRebind(Intent intent) {
+        boundCount++;
     }
 
     public boolean isControlling() {
@@ -174,10 +203,36 @@ public class ControlService extends Service {
         // включения управления или первого касания тачпада.
         if (controlling && client != null
                 && client.sameParams(mode, ip, port, btMac, deviceName)) {
-            return;
-        }
-        if (controlling) {
+            PcClient c = client;
+            Thread t = clientThread;
+            // v1.5: но если поток клиента почему-то завершился (например, сервис
+            // был перезапущен системой), поднимем новый экземпляр, а не будем
+            // «ждать» мёртвый клиент вечно.
+            if (t != null && !t.isAlive()) {
+                stopControlling();
+            } else if (c != null && !c.isConnected() && !c.isRunning()) {
+                stopControlling();
+            } else {
+                return;
+            }
+        } else if (controlling) {
             stopControlling(); // параметры изменились - переподключаемся осознанно
+        }
+        // v1.5: страховка от дубликатов — никогда не запускать второй PcClient,
+        // пока предыдущий поток ещё жив (два TCP-канала с одного телефона =
+        // ложные «Клиент отключился» в логе сервера, когда дубликат умирал).
+        if (client != null) {
+            PcClient stale = client;
+            Thread st = clientThread;
+            client = null;
+            clientThread = null;
+            stale.shutdown();
+            if (st != null) {
+                try {
+                    st.join(1000);
+                } catch (InterruptedException ignored) {
+                }
+            }
         }
         controlling = true;
         acquireWakeLock();
@@ -204,6 +259,7 @@ public class ControlService extends Service {
                             .edit().putInt("pc_w", w).putInt("pc_h", h).apply();
                 });
         clientThread = new Thread(client, "PcClient");
+        client.setThread(clientThread); // v1.5: для корректной остановки в shutdown()
         clientThread.start();
     }
 

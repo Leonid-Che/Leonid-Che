@@ -357,7 +357,15 @@ public class MainActivity extends AppCompatActivity {
             unbindService(conn);
             bound = false;
         }
-        stopService(new Intent(this, ControlService.class));
+        // v1.5: НЕ вызывать stopService() здесь.
+        // При пересоздании активности (поворот экрана, восстановление системой,
+        // перезапуск приложения) Android сначала уничтожает старый экземпляр —
+        // прежний код в этот момент останавливал foreground-сервис и рвал живой
+        // TCP-канал. Сервер фиксировал «Клиент отключился» (сессия ~0 с,
+        // последняя команда 'hello') ровно после включения управления и первых
+        // касаний, после чего клиент переподключался. Решение о выключении
+        // управления теперь принимает сам сервис в onUnbind() при последней
+        // отвязке — корректно, с честным shutdown клиента.
         super.onDestroy();
     }
 
@@ -607,6 +615,24 @@ public class MainActivity extends AppCompatActivity {
             startForegroundService(intent);
         } else {
             startService(intent);
+        }
+    }
+
+    /**
+     * v1.5: явное закрытие приложения кнопкой «Назад» (управление выключено).
+     * Сервис остаётся в фоне «на всякий случай» (foreground-сервис с
+     * idle-уведомлением), поэтому при реальном выходе останавливаем его —
+     * иначе процесс висит до принудительной остановки системой. При
+     * включённом управлении выход блокируется onBackPressed(), сюда не попадаем.
+     */
+    @Override
+    public void finish() {
+        super.finish();
+        if (!isControlling()) {
+            try {
+                stopService(new Intent(this, ControlService.class));
+            } catch (Exception ignored) {
+            }
         }
     }
 }

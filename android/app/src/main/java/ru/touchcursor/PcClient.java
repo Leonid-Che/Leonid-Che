@@ -65,6 +65,8 @@ public class PcClient implements Runnable {
     private final String btMac;
 
     private volatile Transport transport;
+    /** v1.5: поток connectLoop (нужен для аккуратной остановки в shutdown). */
+    private volatile Thread clientThread;
     private volatile OutputStream out;
     private volatile boolean running = true;
     private volatile boolean connected = false;
@@ -76,6 +78,16 @@ public class PcClient implements Runnable {
 
     public boolean isConnected() {
         return connected;
+    }
+
+    /** v1.5: жив ли ещё цикл connectLoop этого клиента (см. ControlService). */
+    public boolean isRunning() {
+        return running;
+    }
+
+    /** v1.5: ссылка на поток connectLoop для корректной остановки в shutdown(). */
+    public void setThread(Thread t) {
+        clientThread = t;
     }
 
     /**
@@ -344,8 +356,27 @@ public class PcClient implements Runnable {
         }
         if (t != null) {
             try {
+                // v1.5: close() прерывает блокирующий readLine() цикла и
+                // корректно отправляет FIN — сервер видит честный EOF вместо
+                // таймаута heartbeat.
                 t.close();
             } catch (Exception ignored) {
+            }
+        }
+        // v1.5: гарантированная остановка зависшего в сокете потока чтения.
+        // Если connectLoop застрял в блокирующем recv() на канале, который не
+        // удалось закрыть (BT/USB), поток остаётся живым и держит старый TCP-
+        // сокет открытым: с телефона одновременно живут 2 клиента, и гибель
+        // дубликата сервер печатает как «Клиент отключился» ровно при включении
+        // управления. interrupt() будит поток (SocketTimeoutException по
+        // setSoTimeout уже обрабатывается), join ждёт коротко и отпускает UI.
+        Thread th = clientThread;
+        if (th != null && th.isAlive()) {
+            th.interrupt();
+            try {
+                th.join(1500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
         }
     }
