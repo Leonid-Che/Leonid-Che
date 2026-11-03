@@ -182,38 +182,92 @@ class ClientHandler(threading.Thread):
         else:
             self.conn.write(data)
 
-    def _can_read(self, timeout: float) -> bool:
-        """True, если на канале есть данные. Для сокетов — select() с таймаутом;
-        для не-сокетных транспортов (USB AOA, COM) — обычный блокирующий read."""
-        raw = getattr(self.conn, "_sock", None)
-        if isinstance(raw, socket.socket):
-            try:
-                r, _, _ = select.select([raw], [], [], timeout)
-                return bool(r)
-            except (OSError, ValueError):
-                # Сокет закрыт/некорректен — пусть read() выдаст штатную ошибку.
-                return True
-        return True
+    def _sock_readable(self, sock: socket.socket) -> str:
+        """Неблокирующая проверка читаемости сокета через recv(MSG_PEEK).
+
+        Возвращает:
+          'data' — в буфере есть байты (можно читать);
+          'idle' — данных сейчас нет, но соединение живо (EAGAIN/ENOTCONN);
+          'eof'  — вторая сторона закрыла соединение (FIN/RST, peek вернул b'').
+        """
+        try:
+            data = sock.recv(1, socket.MSG_PEEK)
+        except OSError as exc:
+            if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK, errno.ENOTCONN):
+                return "idle"
+            if exc.errno == errno.EBADF:      # сокет уже закрыт нами
+                return "eof"
+            raise ConnectionError(str(exc))   # прочие ошибки считаем обрывом
+        return "data" if data else "eof"
 
     def run(self):
         log.info("Клиент подключился: %s", self.peer)
         reason = "клиент закрыл соединение (EOF)"
         try:
+            # v1.4: переводим сокет в неблокирующий режим и читаем через
+            # MSG_PEEK-поллинг. Раньше чтение было блокирующим: select()
+            # сигнализировал готовность, но к моменту recv() состояние канала
+            # могло измениться — recv() возвращал b'' (ложный EOF), цикл
+            # break'ался, и сервер печатал «Клиент отключился» ровно при
+            # включении управления и первых касаниях (пик трафика move).
+            # Теперь «нет данных» (EAGAIN) и «peer закрылся» (b'' из peek)
+            # различаются корректно: простой больше не выглядит как обрыв.
+            # Сам сокет: accept() возвращает socket напрямую; для обёрток
+            # ищем _sock / _handle. Если это не сокет (COM/USB-канал) —
+            # остаёмся на блокирующем чтении как раньше.
+            raw = self.conn
+            if not isinstance(raw, socket.socket):
+                raw = getattr(self.conn, "_sock", None) or \
+                      getattr(self.conn, "_handle", None)
+            nonblocking = False
+            if isinstance(raw, socket.socket):
+                try:
+                    raw.setblocking(False)
+                    nonblocking = True
+                except OSError:
+                    nonblocking = False
+            poll_sock = raw if nonblocking else None
             last_rx = time.time()
             while True:
-                if not self._can_read(self.POLL_INTERVAL):
-                    # Данных нет — это НОРМАЛЬНОЕ состояние простоя, а не ошибка.
-                    # Раз в HEARTBEAT_AFTER шлём лёгкий ping: клиент видит жизнь
-                    # канала, а Wi-Fi-адаптер не «засыпает» на молчаливом соединении.
-                    if time.time() - last_rx >= self.HEARTBEAT_AFTER:
-                        last_rx = time.time()
+                if poll_sock is not None:
+                    state = self._sock_readable(poll_sock)
+                    if state == "idle":
+                        # Данных нет — это НОРМАЛЬНОЕ состояние простоя, а не
+                        # ошибка. Раз в HEARTBEAT_AFTER шлём лёгкий ping: клиент
+                        # видит жизнь канала, а Wi-Fi-адаптер телефона не
+                        # «засыпает» на молчаливом соединении.
+                        if time.time() - last_rx >= self.HEARTBEAT_AFTER:
+                            last_rx = time.time()
+                            try:
+                                self._sendall(b'{"resp":"ping"}\n')
+                            except OSError:
+                                pass  # обрыв будет обнаружен следующим чтением
+                        # Пауза до POLL_INTERVAL, чтобы не крутить CPU пустым
+                        # циклом; select() разбудит нас раньше при приходе данных.
                         try:
-                            self._sendall(b'{"resp":"ping"}\n')
-                        except OSError:
-                            pass  # обрыв будет обнаружен следующим чтением
-                    continue
-                data = self._recv()
+                            select.select([poll_sock], [], [], self.POLL_INTERVAL)
+                        except (OSError, ValueError):
+                            pass
+                        continue
+                    if state == "eof":
+                        break
+                if poll_sock is not None:
+                    # state == 'data': байты точно есть — снимаем их прямым
+                    # recv() (неблокирующий сокет может вернуть EAGAIN, если
+                    # данные уже успели прочитать — тогда просто продолжаем).
+                    try:
+                        data = poll_sock.recv(4096)
+                    except OSError as exc:
+                        if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                            continue
+                        raise ConnectionError(str(exc))
+                else:
+                    data = self._recv()
                 if not data:
+                    # Для неблокирующего сокета сюда попадаем только после
+                    # state=='eof' (выше break), поэтому пустое чтение здесь
+                    # настоящий EOF; для блокирующих транспортов (COM/USB)
+                    # пустое чтение тоже штатный признак закрытия.
                     break
                 last_rx = time.time()
                 self.buf += data

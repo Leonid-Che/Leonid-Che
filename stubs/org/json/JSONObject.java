@@ -7,5 +7,7 @@ public class JSONObject {
     public double getDouble(String k) throws Exception { return 0; }
     public int getInt(String k) throws Exception { return 0; }
     public boolean has(String k) { return false; }
+    public String optString(String k) { return ""; }
+    public JSONArray getJSONArray(String k) throws Exception { return null; }
     public String toString() { return "{}"; }
 }

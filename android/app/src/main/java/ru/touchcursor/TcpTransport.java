@@ -49,6 +49,16 @@ public class TcpTransport implements Transport {
     public InputStream getInputStream() throws IOException {
         Socket s = socket;
         if (s == null) throw new IOException("socket not connected");
+        // v1.4: таймаут чтения 5 с. Без него readLine() блокировался «навечно»,
+        // и штатное завершение клиента (shutdown -> close) зависало в этом
+        // чтении до прихода TCP-ответа от сервера — на практике это выглядело
+        // как обрыв соединения при каждом переподключении. Теперь BufferedReader
+        // бросит SocketTimeoutException, PcClient перехватит её как пустую
+        // строку и продолжит цикл, не разрывая канал.
+        try {
+            s.setSoTimeout(5000);
+        } catch (Exception ignored) {
+        }
         return s.getInputStream();
     }
 

@@ -29,6 +29,8 @@ public class PcClient implements Runnable {
     private static final int RECONNECT_DELAY_MAX_MS = 30000;
     /** Максимальная частота move-команд, чтобы не топить сеть и сервер. */
     private static final long MOVE_MIN_INTERVAL_MS = 30;
+    /** v1.4: после скольких подряд таймаутов чтения слать пробный ping. */
+    private static final int READ_TIMEOUT_MISSES = 5;
 
     /** Режимы канала связи со смартфоном. */
     public static final int MODE_WIFI = 0;
@@ -157,7 +159,34 @@ public class PcClient implements Runnable {
                 BufferedReader in = new BufferedReader(
                         new InputStreamReader(t.getInputStream(), StandardCharsets.UTF_8));
                 String line;
-                while (running && (line = in.readLine()) != null) {
+                int missedReads = 0;
+                while (running) {
+                    try {
+                        line = in.readLine();
+                    } catch (java.net.SocketTimeoutException ste) {
+                        // v1.4: таймаут чтения = простой канала, а НЕ обрыв.
+                        line = "";
+                    }
+                    if (line == null) break;   // настоящий EOF: сервер закрылся
+                    if (line.isEmpty()) {
+                        // v1.4: пустая строка = таймаут чтения. Это НЕ обрыв:
+                        // сервер живёт в простое между командами. Считаем
+                        // промахи и при накоплении шлём "ping" — лёгкую команду,
+                        // на которую сервер гарантированно ответит (см.
+                        // server.py: unknown cmd -> err-ответ). Наличие ответа
+                        // доказывает жизнь канала без разрыва соединения.
+                        if (++missedReads >= READ_TIMEOUT_MISSES) {
+                            missedReads = 0;
+                            try {
+                                JSONObject probe = new JSONObject();
+                                probe.put("cmd", "ping");
+                                writeLine(probe.toString());
+                            } catch (Exception ignored) {
+                            }
+                        }
+                        continue;
+                    }
+                    missedReads = 0;
                     try {
                         JSONObject resp = new JSONObject(line);
                         if ("hello".equals(resp.optString("cmd"))
@@ -165,9 +194,17 @@ public class PcClient implements Runnable {
                             org.json.JSONArray sc = resp.getJSONArray("screen");
                             screenListener.onScreenSize(sc.getInt(0), sc.getInt(1));
                         }
+                        // {"resp":"ping"} от сервера — просто подтверждение
+                        // жизни канала, игнорируем.
                     } catch (Exception ignored) {
                         // не-JSON или неизвестный ответ - пропускаем
                     }
+                }
+                // v1.4: если цикл вышел из-за readLine()==null, но поток ещё
+                // открыт и running==true — это штатное закрытие (shutdown()).
+                // Реальный обрыв здесь же: ставим понятную причину.
+                if (running && lastError == null) {
+                    lastError = "Соединение закрыто сервером";
                 }
             } catch (Exception e) {
                 lastError = e.getMessage() == null ? e.toString() : e.getMessage();
