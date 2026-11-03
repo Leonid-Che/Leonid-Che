@@ -24,6 +24,22 @@ public class TcpTransport implements Transport {
     @Override
     public void connect() throws IOException {
         Socket s = new Socket();
+        // v1.7: ГЛАВНАЯ ПРИЧИНА повторяющихся обрывов Wi-Fi.
+        // На Android (Linux) таймаут, переданный в connect(addr, timeout),
+        // НЕ ДЕЙСТВУЕТ, если сокет не был предварительно привязан к локальному
+        // адресу bind(): ядро игнорирует SO_SNDTIMEO и соединение зависает до
+        // ~30 секунд (TCP SYN retries). При включении управления приложение
+        // пересоздаёт клиента (идемпотентный startControlling не срабатывал после
+        // поворота экрана/выдачи прав), новый экземпляр открывал ВТОРОЙ канал,
+        // сервер вытеснял им живой — в логе ровно «Клиент отключился ...
+        // последняя hello» сразу после включения и первых касаний.
+        // Предварительный bind() на автоматический порт включает действие
+        // таймаута: connect() бросит SocketTimeoutException через 4 с.
+        try {
+            s.bind(new InetSocketAddress(0));
+        } catch (IOException ignored) {
+            // bind не критичен — пробуем подключиться и так
+        }
         s.connect(new InetSocketAddress(host, port), PcClient.CONNECT_TIMEOUT_MS);
         s.setTcpNoDelay(true);
         // v1.4: setKeepAlive(false) вместо setKeepAlive(true).

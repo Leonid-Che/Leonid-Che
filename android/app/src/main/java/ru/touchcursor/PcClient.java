@@ -32,6 +32,14 @@ public class PcClient implements Runnable {
     /** v1.4: после скольких подряд таймаутов чтения слать пробный ping. */
     private static final int READ_TIMEOUT_MISSES = 5;
 
+    /**
+     * v1.7: «сиротский» клиент (см. shutdown()). Если цикл переподключения
+     * бездействует дольше этого времени, он завершается сам — иначе мёртвый
+     * объект PcClient навсегда держит TCP-сокет открытым и рвёт живое
+     * соединение при следующем включении управления.
+     */
+    private static final long IDLE_SHUTDOWN_MS = 90_000;
+
     /** Режимы канала связи со смартфоном. */
     public static final int MODE_WIFI = 0;
     public static final int MODE_USB = 1;
@@ -140,14 +148,56 @@ public class PcClient implements Runnable {
         }
     }
 
+    /**
+     * v1.7: клиент был остановлен штатно (stopControlling/shutdown).
+     * Пока флаг не сброшен, connectLoop не запускается повторно — это
+     * защита от «сиротского» клиента, который без shutdown() открыл бы
+     * второй TCP-канал и оборвал живой (см. shutdown()).
+     */
+    private volatile boolean stopped = false;
+
+    public boolean isStopped() {
+        return stopped;
+    }
+
     @Override
     public void run() {
+        // v1.7: остановленный экземпляр не перезапускаем — иначе «сиротский»
+        // клиент открыл бы второй TCP-канал и вытеснил живой (см. shutdown()).
+        if (stopped) {
+            running = false;
+            return;
+        }
         int backoff = RECONNECT_DELAY_MS; // v1.4: экспоненциальная задержка (2..30 с)
+        long lastConnectAttempt = System.currentTimeMillis();
         while (running) {
             Transport t = null;
             try {
-                t = createTransport();
-                t.connect();
+                // v1.7: страховка от зависания потока accept() на Windows-сервере.
+                // Если предыдущее соединение было прервано грубо (RST из-за
+                // вытеснения дубликата), серверный поток иногда не освобождает
+                // очередь listen-сокета, и новый connect() висел бы до 30+ с
+                // (на Android таймаут коннекта игнорируется ядром). Жёсткий
+                // watchdog будит поток через CONNECT_TIMEOUT_MS: interrupt()
+                // обрывает блокирующее socket.connect(), а закрываемый следом
+                // транспорт добивает сокет гарантированно.
+                final Thread self = Thread.currentThread();
+                Thread watchdog = new Thread(() -> {
+                    try {
+                        Thread.sleep(PcClient.CONNECT_TIMEOUT_MS + 1500L);
+                    } catch (InterruptedException e) {
+                        return; // соединение установлено — watchdog больше не нужен
+                    }
+                    if (!self.isInterrupted()) self.interrupt();
+                }, "PcClientWatchdog");
+                watchdog.setDaemon(true);
+                watchdog.start();
+                try {
+                    t = createTransport();
+                    t.connect();
+                } finally {
+                    watchdog.interrupt();
+                }
                 backoff = RECONNECT_DELAY_MS; // соединение удалось — сброс паузы
                 // Публикуем канал атомарно (см. publish/unpublish): старый
                 // экземпляр клиента мог ещё оставаться в поле transport у UI-потока,
@@ -243,11 +293,26 @@ public class PcClient implements Runnable {
 
             if (!running) break;
             callback.onDisconnected(lastError);
+            // v1.7: «сиротский» клиент — корень повторяющихся обрывов Wi-Fi.
+            // Если экземпляр был вытеснен новым (startControlling вызывается
+            // повторно при повороте экрана, смене канала, выдаче прав), но его
+            // shutdown() не был вызван, цикл вечно переподключается каждые 2-30
+            // с и держит ВТОРОЙ TCP-канал. Сервер вытесняет им живой канал —
+            // в логе ровно это выглядит как «Клиент отключился ... последняя
+            // hello» сразу после включения управления и первых касаний.
+            // Мёртвый клиент сам завершается после IDLE_SHUTDOWN_MS безрезультатных
+            // попыток и закрывает сокет.
+            long now = System.currentTimeMillis();
+            if (now - lastConnectAttempt > IDLE_SHUTDOWN_MS) {
+                running = false;
+                break;
+            }
             try {
                 Thread.sleep(backoff);
             } catch (InterruptedException e) {
                 break;
             }
+            lastConnectAttempt = System.currentTimeMillis();
             // v1.4: экспоненциальная пауза до 30 с — при устойчивых обрывах
             // не «долбить» сервер каждые 2 секунды (это само по себе создавало
             // лавину подключений/разрывов в логе).
@@ -347,6 +412,7 @@ public class PcClient implements Runnable {
     /** Останавливает клиент и ждёт завершения фонового цикла. */
     public void shutdown() {
         running = false;
+        stopped = true; // v1.7: запрет на повторный запуск этого экземпляра (см. run())
         Transport t;
         synchronized (connLock) {
             t = transport;
@@ -360,6 +426,22 @@ public class PcClient implements Runnable {
                 // корректно отправляет FIN — сервер видит честный EOF вместо
                 // таймаута heartbeat.
                 t.close();
+            } catch (Exception ignored) {
+            }
+        }
+        // v1.7: если транспорт не закрылся (BT/USB-зависание), принудительно
+        // обрываем его ещё раз и будим поток чтения: иначе он «спит» в recv()
+        // до 5 секунд (SoTimeout), join(1500) выходит по таймауту, а живой
+        // TCP-канал остаётся открытым после выключения управления — при
+        // следующем включении сервер вытесняет его новым соединением и печатает
+        // «Клиент отключился ... последняя hello».
+        Transport t2;
+        synchronized (connLock) {
+            t2 = transport;
+        }
+        if (t2 != null) {
+            try {
+                t2.close();
             } catch (Exception ignored) {
             }
         }

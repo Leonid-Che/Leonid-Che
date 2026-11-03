@@ -196,7 +196,7 @@ public class ControlService extends Service {
     }
 
     /** Включить управление: подключиться к ПК по выбранному каналу и держать соединение. */
-    public void startControlling(int mode, String ip, int port, String btMac, String deviceName) {
+    public synchronized void startControlling(int mode, String ip, int port, String btMac, String deviceName) {
         // Идемпотентность: повторный вызов с теми же параметрами (например, при
         // пересоздании активности после поворота экрана) НЕ должен рвать живое
         // соединение — иначе сервер фиксирует "Клиент отключился" ровно в момент
@@ -208,9 +208,20 @@ public class ControlService extends Service {
             // v1.5: но если поток клиента почему-то завершился (например, сервис
             // был перезапущен системой), поднимем новый экземпляр, а не будем
             // «ждать» мёртвый клиент вечно.
-            if (t != null && !t.isAlive()) {
-                stopControlling();
-            } else if (c != null && !c.isConnected() && !c.isRunning()) {
+            boolean threadDead = (t != null && !t.isAlive());
+            // v1.7: страховка для случая, когда поток ещё жив, но цикл уже
+            // вышел из-за interrupt()/ошибки канала (isRunning()==false):
+            // такой клиент никогда не переподключится сам. Даём ему 2 секунды
+            // на достройку соединения и перезапускаемся.
+            boolean zombie = false;
+            if (!threadDead && !c.isConnected()) {
+                try {
+                    wait(2000);
+                } catch (InterruptedException ignored) {
+                }
+                zombie = !c.isConnected() && !c.isRunning();
+            }
+            if (threadDead || zombie) {
                 stopControlling();
             } else {
                 return;
@@ -221,6 +232,9 @@ public class ControlService extends Service {
         // v1.5: страховка от дубликатов — никогда не запускать второй PcClient,
         // пока предыдущий поток ещё жив (два TCP-канала с одного телефона =
         // ложные «Клиент отключился» в логе сервера, когда дубликат умирал).
+        // v1.7: shutdown() ставит флаг stopped — даже если старый поток не
+        // завершится за join(1000) (завис в BT/USB-сокете), он больше не
+        // откроет второго TCP-канала и не вытеснит живой.
         if (client != null) {
             PcClient stale = client;
             Thread st = clientThread;
@@ -264,7 +278,7 @@ public class ControlService extends Service {
     }
 
     /** Выключить управление: разорвать соединение. */
-    public void stopControlling() {
+    public synchronized void stopControlling() {
         controlling = false;
         releaseWakeLock();
         PcClient c = client;
@@ -277,6 +291,8 @@ public class ControlService extends Service {
             }
             clientThread = null;
         }
+        // v1.7: разбудить поток(ы), ожидающие в startControlling (см. wait(2000)).
+        notifyAll();
         updateNotification(getString(R.string.notification_idle));
     }
 

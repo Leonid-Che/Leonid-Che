@@ -174,6 +174,9 @@ class ClientHandler(threading.Thread):
         # v1.5: обратный вызов «сессия завершена» (для вытеснения старых
         # клиентов, см. serve_tcp). Вызывается из finally после закрытия канала.
         self.on_closed = on_closed
+        # v1.7: IP телефона без порта — ключ словаря активных клиентов в
+        # serve_tcp (см. там же; для USB/BT-транспортов не задаётся).
+        self.ip = ""
 
     def _recv(self):
         if hasattr(self.conn, "recv"):
@@ -361,6 +364,13 @@ class ClientHandler(threading.Thread):
                     raise ValueError("неизвестная кнопка: %r" % btn)
             elif name == "scroll":
                 self.ctrl.scroll(float(cmd.get("dy", 0)))
+            elif name == "ping":
+                # v1.7: штатная команда живости канала (клиент шлёт её при
+                # простое, см. PcClient). Раньше она попадала в else и
+                # фиксировалась в логе как «неизвестная команда» — лишняя
+                # запись каждый раз, когда телефон ничего не трогает.
+                self._sendall(b'{"resp":"pong"}\n')
+                return
             else:
                 raise ValueError("неизвестная команда: %r" % name)
             if name != "move":  # на move не отвечаем - слишком часто
@@ -430,11 +440,17 @@ def serve_tcp(ctrl: InputController, port: int):
     # «Клиент отключился» ровно в момент первых касаний. Теперь старый канал
     # с того же IP вытесняется сразу при появлении нового — обрывы дубликата
     # больше не видны как разрыв рабочего соединения.
+    # v1.7: ключом служит ТОЛЬКО IP телефона (addr[0]), а не IP:порт. Прежний
+    # ключ "ip:ephemeral_port" не распознавал дубликаты: повторное подключение
+    # с того же телефона всегда приходит с новым локальным портом, поэтому
+    # второй канал клиента никогда не вытеснялся — оба жили параллельно, и
+    # гибель любого из них выглядела как «Клиент отключился ... последняя
+    # hello». Вытеснение теперь работает честно.
     active_by_peer = {}
 
     def _on_closed(h):
-        if active_by_peer.get(h.peer) is h:
-            active_by_peer.pop(h.peer, None)
+        if active_by_peer.get(h.ip) is h:
+            active_by_peer.pop(h.ip, None)
 
     try:
         while True:
@@ -454,13 +470,15 @@ def serve_tcp(ctrl: InputController, port: int):
             except (OSError, AttributeError):
                 pass  # не Windows / недоступно — не критично
             peer = "%s:%d" % addr[:2]
-            old = active_by_peer.get(peer)
+            ip = addr[0]  # v1.7: ключ вытеснения дубликатов — IP без порта
+            old = active_by_peer.get(ip)
             if old is not None and old.is_alive():
                 log.info("Вытесняю старый канал от %s (новый подключился раньше, "
-                         "чем закрылся прежний — дубликат клиента)", peer)
+                         "чем закрылся прежний — дубликат клиента)", ip)
                 old.shutdown()
             handler = ClientHandler(conn, ctrl, peer, on_closed=_on_closed)
-            active_by_peer[peer] = handler
+            handler.ip = ip
+            active_by_peer[ip] = handler
             handler.start()
     finally:
         srv.close()
