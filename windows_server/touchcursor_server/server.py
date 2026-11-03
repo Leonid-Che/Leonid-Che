@@ -177,6 +177,11 @@ class ClientHandler(threading.Thread):
         # v1.7: IP телефона без порта — ключ словаря активных клиентов в
         # serve_tcp (см. там же; для USB/BT-транспортов не задаётся).
         self.ip = ""
+        # v1.9: флаг «сервер просит завершить сессию» (вытеснение дубликата).
+        # Сокет при этом НЕ закрывается из shutdown() — это делал поток run()
+        # в finally, иначе peek на закрытом сокете давал ложный EOF и в логе
+        # появлялось «Клиент отключился ... последняя hello».
+        self.stopped = False
 
     def _recv(self):
         if hasattr(self.conn, "recv"):
@@ -235,7 +240,7 @@ class ClientHandler(threading.Thread):
                     nonblocking = False
             poll_sock = raw if nonblocking else None
             last_rx = time.time()
-            while True:
+            while not self.stopped:
                 if poll_sock is not None:
                     state = self._sock_readable(poll_sock)
                     if state == "idle":
@@ -295,6 +300,10 @@ class ClientHandler(threading.Thread):
             reason = "внутренняя ошибка потока: %r" % exc
             log.warning(reason)
         finally:
+            # v1.9: если сессию попросил завершить сервер (вытеснение дубликата),
+            # это НЕ обрыв — помечаем причину штатно, чтобы лог не вводил в заблуждение.
+            if self.stopped:
+                reason = "канал вытеснен новым подключением (штатно)"
             # v1.4: подробная диагностика — раньше «Клиент отключился» было
             # невозможно объяснить; теперь видно, на какой команде и как долго
             # жила сессия.
@@ -386,19 +395,28 @@ class ClientHandler(threading.Thread):
             pass
 
     def shutdown(self):
-        """Штатное завершение сессии по инициативе СЕРВЕРА (например, при
-        перезапуске): сначала закрываем listen-сокет, чтобы accept() не принял
-        новый канал раньше, чем будет закрыт старый. Иначе на телефоне два
-        клиента могли бы одновременно держать соединение — а закрытие старого
-        экземпляра выглядело в логе как «Клиент отключился»."""
+        """Штатное завершение сессии по инициативе СЕРВЕРА (вытеснение
+        дубликата, перезапуск).
+
+        v1.9 ВАЖНО: сокет НЕ закрывается немедленно. Раньше здесь шёл
+        shutdown(SHUT_RDWR)+close(), и вытесняемый поток обработчика ещё
+        несколько миллисекунд крутил цикл чтения на уже ЗАКРЫТОМ сокете:
+        MSG_PEEK возвращал b'' -> ложный EOF -> в лог печаталось
+        «Клиент отключился ... последняя hello» ровно в момент включения
+        управления (появление нового канала = вытеснение старого). Теперь
+        закрытие выполняет сам поток run() в своём finally, когда увидит
+        флаг stopped — сообщение при этом помечается как штатное вытеснение.
+        """
+        self.stopped = True
+        # Разбудить неблокирующий select()-опрос мгновенно: connect к тому же
+        # порту локально всегда succeeds, данные не читаются (peek в run()).
         try:
-            self.conn.shutdown(socket.SHUT_RDWR)
+            if isinstance(self.conn, socket.socket):
+                probe = socket.create_connection(
+                    self.conn.getsockname(), timeout=0.5)
+                probe.close()
         except OSError:
-            pass
-        try:
-            self.conn.close()
-        except Exception:
-            pass
+            pass  # не сокет (COM/USB) или разбудили не удалось — поможем heartbeat
 
 
 def get_local_ips():

@@ -49,6 +49,14 @@ public class PcClient implements Runnable {
     private final String host;      // IP (режим Wi-Fi) или MAC (режим BT), "" для USB
     private final int port;
     private final String deviceName;
+    /** v1.9: уникальный идентификатор клиента в протоколе ("hello"). Сервер
+     *  использует его вместо IP:порт для распознавания дубликатов: повторное
+     *  подключение того же экземпляра клиента НЕ вытесняет живой канал, а
+     *  новый клиент корректно заменяет старый. Раньше ключом служил IP телефона,
+     *  и любое второе hello (даже от «сиротского» цикла переподключения) рвало
+     *  рабочее соединение — ровно это и выглядело как «Клиент отключился ...
+     *  последняя hello» при включении управления. */
+    private final String clientId = java.util.UUID.randomUUID().toString();
     private final Context appContext;
     private final Callback callback;
     private final ScreenInfoListener screenListener;
@@ -214,6 +222,7 @@ public class PcClient implements Runnable {
                 JSONObject hello = new JSONObject();
                 hello.put("cmd", "hello");
                 hello.put("name", deviceName);
+                hello.put("id", clientId); // v1.9: ключ вытеснения дубликатов на сервере
                 hello.put("transport", mode == MODE_USB ? "usb" : mode == MODE_BT ? "bt" : "wifi");
                 writeLine(hello.toString());
 
