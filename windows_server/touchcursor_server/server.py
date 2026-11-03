@@ -161,11 +161,12 @@ class ClientHandler(threading.Thread):
     HEARTBEAT_AFTER = 5.0
 
     def __init__(self, conn, ctrl: InputController, peer: str = "?",
-                 on_closed=None):
+                 on_closed=None, listen_port: int = 0):
         super().__init__(daemon=True)
         self.conn = conn
         self.ctrl = ctrl
         self.peer = peer
+        self.listen_port = listen_port  # v1.9: для понятной диагностики в логе
         self.buf = b""
         # v1.4: диагностика обрывов — кто именно закрыл соединение.
         self.last_cmd = ""
@@ -213,7 +214,9 @@ class ClientHandler(threading.Thread):
         return "data" if data else "eof"
 
     def run(self):
-        log.info("Клиент подключился: %s", self.peer)
+        log.info("Клиент подключился [телефон %s]: IP до двоеточия — адрес "
+                 "смартфона, после — его временный порт; сервер слушает на "
+                 "своём IP:%d", self.peer, self.listen_port)
         reason = "клиент закрыл соединение (EOF)"
         try:
             # v1.4: переводим сокет в неблокирующий режим и читаем через
@@ -307,8 +310,15 @@ class ClientHandler(threading.Thread):
             # v1.4: подробная диагностика — раньше «Клиент отключился» было
             # невозможно объяснить; теперь видно, на какой команде и как долго
             # жила сессия.
-            log.info("Клиент отключился: %s | команд: %d, последняя: %r, "
-                     "сессия: %.1f с, причина: %s",
+            # v1.9: в peer всегда печатается АДРЕС КЛИЕНТА (телефона), а не
+            # локальный адрес сервера — раньше это вводило в заблуждение.
+            # v1.9: подпись peer = "%s:%d" % addr[:2] — это адрес КЛИЕНТА из
+            # accept(), т.е. IP ТЕЛЕФОНА и его временный локальный порт.
+            # Сервер всегда слушает на своём IP и порту --port (5575 по
+            # умолчанию); цифры после двоеточия меняются при каждом
+            # переподключении телефона — это нормально.
+            log.info("Клиент отключился [телефон %s] | команд: %d, "
+                     "последняя: %r, сессия: %.1f с, причина: %s",
                      self.peer, self.cmd_count, self.last_cmd,
                      time.time() - self.connected_at, reason)
             try:
@@ -494,7 +504,8 @@ def serve_tcp(ctrl: InputController, port: int):
                 log.info("Вытесняю старый канал от %s (новый подключился раньше, "
                          "чем закрылся прежний — дубликат клиента)", ip)
                 old.shutdown()
-            handler = ClientHandler(conn, ctrl, peer, on_closed=_on_closed)
+            handler = ClientHandler(conn, ctrl, peer, on_closed=_on_closed,
+                              listen_port=port)
             handler.ip = ip
             active_by_peer[ip] = handler
             handler.start()
