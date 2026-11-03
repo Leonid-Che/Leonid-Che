@@ -1,17 +1,1 @@
-dist/
-build/
-*.spec
-__pycache__/
-*.pyc
-TouchCursor-project.zip
-
-# Android Studio / IntelliJ служебные файлы (локальные, не должны попадать в git)
-.idea/
-*/.idea/
-**/.idea/caches/
-*.iml
-.gradle/
-local.properties
-captures/
-.externalNativeBuild/
-.cxx/
+*.zip
