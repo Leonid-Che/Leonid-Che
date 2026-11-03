@@ -126,6 +126,10 @@ class ClientHandler(threading.Thread):
     """Разговор с одним смартфоном. Транспорт не важен: подойдёт сокет
     (Wi-Fi/BT RFCOMM) или USB-канал AOA — лишь бы read()/write() были."""
 
+    # Максимальный размер буфера строки. Защита от "залипания" без перевода
+    # строки (битый транспорт/мусор в канале): иначе buf рос бы бесконечно.
+    MAX_LINE_BYTES = 64 * 1024
+
     def __init__(self, conn, ctrl: InputController, peer: str = "?"):
         super().__init__(daemon=True)
         self.conn = conn
@@ -155,8 +159,14 @@ class ClientHandler(threading.Thread):
                 while b"\n" in self.buf:
                     line, self.buf = self.buf.split(b"\n", 1)
                     self.handle_line(line.decode("utf-8", errors="replace"))
+                if len(self.buf) > self.MAX_LINE_BYTES:
+                    log.warning("Переполнение буфера от %s — сброс %d байт",
+                                self.peer, len(self.buf))
+                    self.buf = b""
         except (ConnectionError, OSError):
             pass
+        except Exception as exc:  # noqa: BLE001 - поток не должен умирать молча
+            log.warning("Ошибка чтения канала %s: %s", self.peer, exc)
         finally:
             log.info("Клиент отключился: %s", self.peer)
             try:
@@ -169,6 +179,18 @@ class ClientHandler(threading.Thread):
         if cmd is None:
             return
         name = cmd.get("cmd", "")
+        # Критично: обработчик вызывается из потока run(), и ЛЮБОЕ
+        # непрехваченное исключение здесь (например, TypeError при некорректных
+        # аргументах команды или MemoryError при пиковом потоке move-событий)
+        # убивало бы поток, сокет закрывался в finally() — клиент видел
+        # "Клиент отключился" и переподключался. Поэтому строку разбираем в
+        # отдельном защищённом блоке: одна битая команда не рвёт соединение.
+        try:
+            self._dispatch(cmd, name)
+        except Exception as exc:  # noqa: BLE001 - защита потока от падения
+            log.warning("Необработанная ошибка в команде %s: %s", name, exc)
+
+    def _dispatch(self, cmd: dict, name: str):
         try:
             if name == "hello":
                 log.info("Устройство: %s (канал: %s)", cmd.get("name", "?"),

@@ -157,7 +157,17 @@ public class ControlService extends Service {
 
     /** Включить управление: подключиться к ПК по выбранному каналу и держать соединение. */
     public void startControlling(int mode, String ip, int port, String btMac, String deviceName) {
-        if (controlling) return;
+        // Идемпотентность: повторный вызов с теми же параметрами (например, при
+        // пересоздании активности после поворота экрана) НЕ должен рвать живое
+        // соединение — иначе сервер фиксирует "Клиент отключился" ровно в момент
+        // включения управления или первого касания тачпада.
+        if (controlling && client != null
+                && client.sameParams(mode, ip, port, btMac, deviceName)) {
+            return;
+        }
+        if (controlling) {
+            stopControlling(); // параметры изменились - переподключаемся осознанно
+        }
         controlling = true;
         updateNotification(getString(R.string.notification_connecting));
 

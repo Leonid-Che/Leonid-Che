@@ -65,11 +65,29 @@ public class PcClient implements Runnable {
     private volatile boolean running = true;
     private volatile boolean connected = false;
     private volatile String lastError = "";
+    /** Локк атомарной публикации/снятия канала (см. run/writeLine/shutdown). */
+    private final Object connLock = new Object();
     private long lastMoveTime = 0;
     private double pendingX, pendingY; // последняя неотправленная позиция
 
     public boolean isConnected() {
         return connected;
+    }
+
+    /**
+     * Сравнение параметров канала: используется ControlService для идемпотентного
+     * startControlling (не переподключаться, если параметры не изменились).
+     */
+    public boolean sameParams(int mode, String host, int port, String btMac, String deviceName) {
+        return this.mode == mode
+                && this.port == port
+                && safeEq(this.host, host)
+                && safeEq(this.btMac, btMac == null ? "" : btMac)
+                && safeEq(this.deviceName, deviceName);
+    }
+
+    private static boolean safeEq(String a, String b) {
+        return a == null ? b == null : a.equals(b);
     }
 
     public String getAddress() {
@@ -113,9 +131,15 @@ public class PcClient implements Runnable {
             try {
                 t = createTransport();
                 t.connect();
-                transport = t;
-                out = t.getOutputStream();
-                connected = true;
+                // Публикуем канал атомарно (см. publish/unpublish): старый
+                // экземпляр клиента мог ещё оставаться в поле transport у UI-потока,
+                // и его закрытие здесь обрывало РАБОТАЮЩЕЕ соединение — сервер видел
+                // "Клиент отключился" ровно в момент включения управления/первого касания.
+                synchronized (connLock) {
+                    transport = t;
+                    out = t.getOutputStream();
+                    connected = true;
+                }
                 lastError = "";
                 callback.onConnected();
 
@@ -145,10 +169,18 @@ public class PcClient implements Runnable {
                 lastError = e.getMessage() == null ? e.toString() : e.getMessage();
                 // связь потеряна или не установлена
             } finally {
-                connected = false;
-                transport = null;
-                out = null;
-                if (t != null) {
+                boolean wasMine;
+                synchronized (connLock) {
+                    // Сбрасываем поля только если они всё ещё указывают на ЭТОТ
+                    // транспорт (а не на более новый, созданный параллельным экземпляром).
+                    wasMine = (transport == t);
+                    if (wasMine) {
+                        connected = false;
+                        transport = null;
+                        out = null;
+                    }
+                }
+                if (t != null && wasMine) {
                     try {
                         t.close();
                     } catch (Exception ignored) {
@@ -220,16 +252,34 @@ public class PcClient implements Runnable {
     }
 
     private void writeLine(String json) {
-        OutputStream o = out;
-        Transport t = transport;
+        // Копируем ссылку на поток под локком: если connectLoop в этот момент
+        // переканаливает соединение, запись уйдёт либо в старый живой канал,
+        // либо в новый - но не в закрытый посередине операции.
+        OutputStream o;
+        Transport t;
+        synchronized (connLock) {
+            o = out;
+            t = transport;
+        }
         if (o == null || t == null) return;
         try {
             o.write(json.getBytes(StandardCharsets.UTF_8));
             o.write('\n');
             o.flush();
         } catch (Exception e) {
-            // обрыв при записи - закрываем канал, connectLoop переподключится
-            connected = false;
+            // Обрыв при записи. ВАЖНО: НЕ закрываем транспорт сами - иначе
+            // сервер фиксировал "Клиент отключился" на каждое проблемное
+            // касание. Просто помечаем канал мёртвым; connectLoop заметит
+            // ошибку чтения/записи и переподключится штатно.
+            synchronized (connLock) {
+                if (transport == t) {
+                    connected = false;
+                    transport = null;
+                    out = null;
+                } else {
+                    return; // это был устаревший экземпляр канала - игнорируем
+                }
+            }
             try {
                 t.close();
             } catch (Exception ignored) {
@@ -240,7 +290,13 @@ public class PcClient implements Runnable {
     /** Останавливает клиент и ждёт завершения фонового цикла. */
     public void shutdown() {
         running = false;
-        Transport t = transport;
+        Transport t;
+        synchronized (connLock) {
+            t = transport;
+            connected = false;
+            transport = null;
+            out = null;
+        }
         if (t != null) {
             try {
                 t.close();
